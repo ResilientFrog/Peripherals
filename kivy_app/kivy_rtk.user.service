@@ -1,0 +1,19 @@
+# User systemd unit (copy to ~/.config/systemd/user/kivy_rtk.service)
+# Enable with: systemctl --user daemon-reload && systemctl --user enable --now kivy_rtk.service
+
+[Unit]
+Description=Kivy RTK App (runs the Kivy GUI for RTK visualizer)
+After=graphical.target
+
+[Service]
+Type=simple
+# Set display and X authority; adjust path if needed
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/berries/.Xauthority
+# Use the venv python to run the app
+ExecStart=/home/berries/Documents/Peripherals/.venv/bin/python /home/berries/Documents/Peripherals/kivy_app/app.py
+WorkingDirectory=/home/berries/Documents/Peripherals/kivy_app
+# Restart=on-failure
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,58 @@
+<RootWidget>:
+    orientation: 'horizontal'
+    padding: 8
+    spacing: 8
+
+    MapContainer:
+        id: map_container
+        size_hint_x: 0.7
+
+    BoxLayout:
+        orientation: 'vertical'
+        size_hint_x: 0.3
+        spacing: 8
+
+        Label:
+            text: 'Uploaded Points'
+            size_hint_y: None
+            height: '30dp'
+            bold: True
+
+        ScrollView:
+            id: scroll_view
+            do_scroll_x: False
+            do_scroll_y: True
+
+            GridLayout:
+                id: buttons_grid
+                cols: 1
+                size_hint_x: 1
+                size_hint_y: None
+                height: self.minimum_height
+                spacing: 4
+                padding: 4
+
+        Label:
+            id: status_label
+            text: 'Status: idle'
+            size_hint_y: None
+            height: '44dp'
+            font_size: '11sp'
+            halign: 'left'
+            valign: 'middle'
+            text_size: self.size
+        
+        BoxLayout:
+            size_hint_y: None
+            height: '36dp'
+            spacing: 4
+
+            Button:
+                id: set_ref_btn
+                text: 'Set GNSS Ref'
+                size_hint_x: 0.5
+
+            Button:
+                id: clear_ref_btn
+                text: 'Clear Ref'
+                size_hint_x: 0.5
