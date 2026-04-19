@@ -1,0 +1,202 @@
+2026-02-27 20:23:57 ℹ️  [RTCM] log started target=http://192.168.4.1/rtcm/stream
+2026-02-27 20:24:02 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: timed out
+2026-02-27 20:24:08 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: timed out
+2026-02-27 20:24:14 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: timed out
+2026-02-27 20:24:20 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: timed out
+2026-02-27 20:24:26 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: timed out
+2026-02-27 20:24:32 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: timed out
+2026-02-27 20:24:38 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: timed out
+2026-02-27 20:24:44 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: timed out
+2026-02-27 20:24:50 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: timed out
+2026-02-27 20:24:56 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: timed out
+2026-02-27 20:25:02 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: timed out
+2026-02-27 20:25:08 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: timed out
+2026-02-27 20:25:14 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: timed out
+2026-02-27 20:25:20 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: timed out
+2026-02-27 20:26:17 ℹ️  [RTCM] log started target=http://192.168.4.1/rtcm/stream
+2026-02-27 20:26:22 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: timed out
+2026-02-27 20:26:28 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: timed out
+2026-02-27 20:32:58 ℹ️  [RTCM] log started target=http://192.168.4.1/rtcm/stream
+2026-02-27 20:33:03 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: timed out
+2026-02-27 20:33:09 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: timed out
+2026-02-27 20:33:15 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: timed out
+2026-02-27 20:33:21 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: timed out
+2026-02-27 20:33:27 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: timed out
+2026-02-27 20:33:33 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: timed out
+2026-02-27 20:33:39 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: timed out
+2026-02-27 20:46:33 ℹ️  [START] GNSS reader started | RTCM enabled=True
+2026-02-27 20:46:33 📡 Connecting to ZED-F9P on /dev/ttyACM0 at 115200...
+2026-02-27 20:46:33 ✅ Connected. Waiting for NAV-PVT messages...
+2026-02-27 20:46:33 ℹ️  [NMEA] disabled (UBX-only parse to avoid checksum spam). Use --show-nmea to enable.
+2026-02-27 20:46:33 📶 [RTCM/WiFi] connecting to 'CHANGE_ME_SSID' on wlan0...
+2026-02-27 20:46:38 ❌ [RTCM/WiFi] failed to connect to 'CHANGE_ME_SSID': Error: No network with SSID 'CHANGE_ME_SSID' found.
+2026-02-27 20:46:38 ❌ [RTCM] not starting RTCM bridge because WiFi connection failed
+2026-02-27 20:46:38 ℹ️  [RTCM] verify SSID/password or pass --rtcm-wifi-ssid with exact network name
+2026-02-27 20:46:38 📡 Connecting to ZED-F9P on /dev/ttyACM0 at 115200...
+2026-02-27 20:46:38 ✅ Connected. Waiting for NAV-PVT messages...
+2026-02-27 20:46:38 ℹ️  [NMEA] disabled (UBX-only parse to avoid checksum spam). Use --show-nmea to enable.
+2026-02-27 20:46:38 📶 [RTCM/WiFi] connecting to 'CHANGE_ME_SSID' on wlan0...
+2026-02-27 20:46:43 ❌ [RTCM/WiFi] failed to connect to 'CHANGE_ME_SSID': Error: No network with SSID 'CHANGE_ME_SSID' found.
+2026-02-27 20:46:43 ❌ [RTCM] not starting RTCM bridge because WiFi connection failed
+2026-02-27 20:46:43 ℹ️  [RTCM] verify SSID/password or pass --rtcm-wifi-ssid with exact network name
+2026-02-27 20:46:43 📡 Connecting to ZED-F9P on /dev/ttyACM0 at 115200...
+2026-02-27 20:46:43 ✅ Connected. Waiting for NAV-PVT messages...
+2026-02-27 20:46:43 ℹ️  [NMEA] disabled (UBX-only parse to avoid checksum spam). Use --show-nmea to enable.
+2026-02-27 20:46:43 📶 [RTCM/WiFi] connecting to 'CHANGE_ME_SSID' on wlan0...
+2026-02-27 20:46:47 ❌ [RTCM/WiFi] failed to connect to 'CHANGE_ME_SSID': Error: No network with SSID 'CHANGE_ME_SSID' found.
+2026-02-27 20:46:47 ❌ [RTCM] not starting RTCM bridge because WiFi connection failed
+2026-02-27 20:46:47 ℹ️  [RTCM] verify SSID/password or pass --rtcm-wifi-ssid with exact network name
+2026-02-27 20:46:47 📡 Connecting to ZED-F9P on /dev/ttyACM0 at 115200...
+2026-02-27 20:46:47 ✅ Connected. Waiting for NAV-PVT messages...
+2026-02-27 20:46:47 ℹ️  [NMEA] disabled (UBX-only parse to avoid checksum spam). Use --show-nmea to enable.
+2026-02-27 20:46:47 📶 [RTCM/WiFi] connecting to 'CHANGE_ME_SSID' on wlan0...
+2026-02-27 20:46:52 ❌ [RTCM/WiFi] failed to connect to 'CHANGE_ME_SSID': Error: No network with SSID 'CHANGE_ME_SSID' found.
+2026-02-27 20:46:52 ❌ [RTCM] not starting RTCM bridge because WiFi connection failed
+2026-02-27 20:46:52 ℹ️  [RTCM] verify SSID/password or pass --rtcm-wifi-ssid with exact network name
+2026-02-27 20:46:52 📡 Connecting to ZED-F9P on /dev/ttyACM0 at 115200...
+2026-02-27 20:46:52 ✅ Connected. Waiting for NAV-PVT messages...
+2026-02-27 20:46:52 ℹ️  [NMEA] disabled (UBX-only parse to avoid checksum spam). Use --show-nmea to enable.
+2026-02-27 20:46:52 📶 [RTCM/WiFi] connecting to 'CHANGE_ME_SSID' on wlan0...
+2026-02-27 20:46:57 ❌ [RTCM/WiFi] failed to connect to 'CHANGE_ME_SSID': Error: No network with SSID 'CHANGE_ME_SSID' found.
+2026-02-27 20:46:57 ❌ [RTCM] not starting RTCM bridge because WiFi connection failed
+2026-02-27 20:46:57 ℹ️  [RTCM] verify SSID/password or pass --rtcm-wifi-ssid with exact network name
+2026-02-27 20:46:57 📡 Connecting to ZED-F9P on /dev/ttyACM0 at 115200...
+2026-02-27 20:46:57 ✅ Connected. Waiting for NAV-PVT messages...
+2026-02-27 20:46:57 ℹ️  [NMEA] disabled (UBX-only parse to avoid checksum spam). Use --show-nmea to enable.
+2026-02-27 20:46:57 📶 [RTCM/WiFi] connecting to 'CHANGE_ME_SSID' on wlan0...
+2026-02-27 20:47:01 ❌ [RTCM/WiFi] failed to connect to 'CHANGE_ME_SSID': Error: No network with SSID 'CHANGE_ME_SSID' found.
+2026-02-27 20:47:01 ❌ [RTCM] not starting RTCM bridge because WiFi connection failed
+2026-02-27 20:47:01 ℹ️  [RTCM] verify SSID/password or pass --rtcm-wifi-ssid with exact network name
+2026-02-27 20:47:01 📡 Connecting to ZED-F9P on /dev/ttyACM0 at 115200...
+2026-02-27 20:47:01 ✅ Connected. Waiting for NAV-PVT messages...
+2026-02-27 20:47:01 ℹ️  [NMEA] disabled (UBX-only parse to avoid checksum spam). Use --show-nmea to enable.
+2026-02-27 20:47:01 📶 [RTCM/WiFi] connecting to 'CHANGE_ME_SSID' on wlan0...
+2026-02-27 20:54:13 ℹ️  [START] GNSS reader started | RTCM enabled=True
+2026-02-27 20:54:13 📡 Connecting to ZED-F9P on /dev/ttyACM0 at 115200...
+2026-02-27 20:54:13 ✅ Connected. Waiting for NAV-PVT messages...
+2026-02-27 20:54:13 ℹ️  [NMEA] disabled (UBX-only parse to avoid checksum spam). Use --show-nmea to enable.
+2026-02-27 20:54:15 ✅ [RTCM/WiFi] already connected to 'CHANGE_ME_SSID'
+2026-02-27 20:54:15 ⚙️  [RTCM] enabling correction link -> http://192.168.4.1/rtcm/stream
+2026-02-27 20:54:15 📝 [RTCM] log file -> rtcm_log.txt
+2026-02-27 20:54:15 ℹ️  [RTCM] log started target=http://192.168.4.1/rtcm/stream
+2026-02-27 20:54:15 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:54:15 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:54:16 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:54:16 📡 [RTCM] Parsed type=3901 payload=2B frame=8B
+2026-02-27 20:54:16 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:54:17 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:54:17 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:54:17 [NAV-PVT] Fix: 3D Fix       | [RTK] No RTK     | Sats: 30 | Lat/Lon: 0.0000049,0.0000017 | Alt: 246.75 m | hAcc: 1.311 m | vAcc: 1.058 m | Head:   0.00° | Speed: 0.01 m/s
+2026-02-27 20:54:18 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:54:18 📡 [RTCM] Parsed type=3901 payload=2B frame=8B
+2026-02-27 20:54:18 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:54:20 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:54:20 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:54:22 [NAV-PVT] Fix: 3D Fix       | [RTK] No RTK     | Sats: 30 | Lat/Lon: 0.0000049,0.0000017 | Alt: 246.97 m | hAcc: 1.349 m | vAcc: 1.098 m | Head:   0.00° | Speed: 0.01 m/s
+2026-02-27 20:54:22 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:54:22 📡 [RTCM] Parsed type=3901 payload=2B frame=8B
+2026-02-27 20:54:22 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:54:24 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:54:24 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:54:25 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:54:25 📡 [RTCM] Parsed type=3901 payload=2B frame=8B
+2026-02-27 20:54:25 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:54:26 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:54:26 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:54:27 [NAV-PVT] Fix: 3D Fix       | [RTK] No RTK     | Sats: 30 | Lat/Lon: 0.0000049,0.0000017 | Alt: 247.19 m | hAcc: 1.375 m | vAcc: 1.133 m | Head:   0.00° | Speed: 0.01 m/s
+2026-02-27 20:54:27 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:54:27 📡 [RTCM] Parsed type=3901 payload=2B frame=8B
+2026-02-27 20:54:27 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:54:28 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:54:28 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:54:29 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:54:29 📡 [RTCM] Parsed type=3901 payload=2B frame=8B
+2026-02-27 20:54:29 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:54:31 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:54:31 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:54:32 [NAV-PVT] Fix: 3D Fix       | [RTK] No RTK     | Sats: 30 | Lat/Lon: 0.0000049,0.0000017 | Alt: 247.45 m | hAcc: 1.396 m | vAcc: 1.166 m | Head:   0.00° | Speed: 0.01 m/s
+2026-02-27 20:54:33 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:54:33 📡 [RTCM] Parsed type=3901 payload=2B frame=8B
+2026-02-27 20:54:33 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:54:35 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:54:35 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:54:36 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:54:36 📡 [RTCM] Parsed type=3901 payload=2B frame=8B
+2026-02-27 20:54:36 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:54:37 [NAV-PVT] Fix: 3D Fix       | [RTK] No RTK     | Sats: 30 | Lat/Lon: 0.0000049,0.0000017 | Alt: 247.65 m | hAcc: 1.415 m | vAcc: 1.196 m | Head:   0.00° | Speed: 0.00 m/s
+2026-02-27 20:54:37 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:54:37 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:54:38 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:54:38 📡 [RTCM] Parsed type=3901 payload=2B frame=8B
+2026-02-27 20:54:38 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:54:39 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:54:39 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:54:42 [NAV-PVT] Fix: 3D Fix       | [RTK] No RTK     | Sats: 30 | Lat/Lon: 0.0000049,0.0000017 | Alt: 247.88 m | hAcc: 1.429 m | vAcc: 1.224 m | Head:   0.00° | Speed: 0.00 m/s
+2026-02-27 20:54:42 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:54:42 📡 [RTCM] Parsed type=3901 payload=2B frame=8B
+2026-02-27 20:54:42 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:54:44 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:54:44 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:54:46 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:54:46 📡 [RTCM] Parsed type=3901 payload=2B frame=8B
+2026-02-27 20:54:46 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:54:47 [NAV-PVT] Fix: 3D Fix       | [RTK] No RTK     | Sats: 30 | Lat/Lon: 0.0000049,0.0000017 | Alt: 247.70 m | hAcc: 1.319 m | vAcc: 1.079 m | Head:   0.00° | Speed: 0.01 m/s
+2026-02-27 20:54:47 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:54:47 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:54:48 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:54:48 📡 [RTCM] Parsed type=3901 payload=2B frame=8B
+2026-02-27 20:54:48 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:54:49 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:54:49 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:54:50 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:54:50 📡 [RTCM] Parsed type=3901 payload=2B frame=8B
+2026-02-27 20:54:50 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:54:51 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:54:51 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:54:52 [NAV-PVT] Fix: 3D Fix       | [RTK] No RTK     | Sats: 30 | Lat/Lon: 0.0000049,0.0000017 | Alt: 247.67 m | hAcc: 1.262 m | vAcc: 1.001 m | Head:   0.00° | Speed: 0.01 m/s
+2026-02-27 20:54:53 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:54:53 📡 [RTCM] Parsed type=3901 payload=2B frame=8B
+2026-02-27 20:54:53 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:54:55 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:54:55 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:54:57 [NAV-PVT] Fix: 3D Fix       | [RTK] No RTK     | Sats: 31 | Lat/Lon: 0.0000049,0.0000017 | Alt: 247.70 m | hAcc: 1.227 m | vAcc: 0.953 m | Head:   0.00° | Speed: 0.01 m/s
+2026-02-27 20:54:57 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:54:57 📡 [RTCM] Parsed type=3901 payload=2B frame=8B
+2026-02-27 20:54:57 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:54:58 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:54:58 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:54:59 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:54:59 📡 [RTCM] Parsed type=3901 payload=2B frame=8B
+2026-02-27 20:54:59 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:55:00 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:55:00 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:55:01 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:55:01 📡 [RTCM] Parsed type=3901 payload=2B frame=8B
+2026-02-27 20:55:01 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:55:02 [NAV-PVT] Fix: 3D Fix       | [RTK] No RTK     | Sats: 31 | Lat/Lon: 0.0000049,0.0000017 | Alt: 247.77 m | hAcc: 1.207 m | vAcc: 0.923 m | Head:   0.00° | Speed: 0.01 m/s
+2026-02-27 20:55:04 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:55:04 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:55:06 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:55:06 📡 [RTCM] Parsed type=3901 payload=2B frame=8B
+2026-02-27 20:55:06 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:55:07 [NAV-PVT] Fix: 3D Fix       | [RTK] No RTK     | Sats: 30 | Lat/Lon: 0.0000049,0.0000017 | Alt: 247.75 m | hAcc: 1.193 m | vAcc: 0.903 m | Head:   0.00° | Speed: 0.01 m/s
+2026-02-27 20:55:08 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:55:08 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:55:09 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:55:09 📡 [RTCM] Parsed type=3901 payload=2B frame=8B
+2026-02-27 20:55:09 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:55:10 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:55:10 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:55:11 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:55:11 📡 [RTCM] Parsed type=3901 payload=2B frame=8B
+2026-02-27 20:55:11 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:55:12 [NAV-PVT] Fix: 3D Fix       | [RTK] No RTK     | Sats: 30 | Lat/Lon: 0.0000049,0.0000017 | Alt: 247.79 m | hAcc: 1.194 m | vAcc: 0.894 m | Head:   0.00° | Speed: 0.01 m/s
+2026-02-27 20:55:12 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:55:12 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:55:13 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:55:13 📡 [RTCM] Parsed type=3901 payload=2B frame=8B
+2026-02-27 20:55:13 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:55:15 ✅ [RTCM] stream connected: http://192.168.4.1/rtcm/stream
+2026-02-27 20:55:15 ⚠️  [RTCM] link error on http://192.168.4.1/rtcm/stream: base closed RTCM stream
+2026-02-27 20:55:16 ℹ️  Stopping...
+2026-02-27 20:55:16 ℹ️  [RTCM] log stopped

@@ -23,8 +23,10 @@ sudo python3 app.py
 3. In a browser, open the uploader page:
 
 ```
-http://127.0.0.1:5000/
+http://<device-ip>:5000/
 ```
+
+If you are connected to the Pi hotspot from another phone or laptop, use the Raspberry Pi IP shown in the app logs.
 
 Upload a CSV file with `lat,lon` per line. The app will display points on the left and generate a button for each point on the right.
 

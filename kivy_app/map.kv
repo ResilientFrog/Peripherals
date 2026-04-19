@@ -1,3 +1,106 @@
+<AppRoot>:
+    StartupScreen:
+        name: 'startup'
+    MainMenuScreen:
+        name: 'main_menu'
+    CsvUploadScreen:
+        name: 'csv_upload'
+    ExistingFlowScreen:
+        name: 'existing_flow'
+
+<StartupScreen>:
+    startup_status: startup_status
+    BoxLayout:
+        orientation: 'vertical'
+        padding: 16
+        spacing: 10
+        Label:
+            text: 'Rover Startup'
+            bold: True
+            size_hint_y: None
+            height: '44dp'
+        Label:
+            id: startup_status
+            text: '⚙️ Initializing...'
+
+<MainMenuScreen>:
+    network_status: network_status
+    BoxLayout:
+        orientation: 'vertical'
+        padding: 16
+        spacing: 10
+
+        Label:
+            text: 'Main Menu'
+            bold: True
+            size_hint_y: None
+            height: '40dp'
+
+        GridLayout:
+            cols: 2
+            spacing: 10
+            size_hint_y: None
+            height: '160dp'
+
+            Button:
+                text: 'CSV Upload'
+                on_press: app.open_csv_upload()
+
+            Button:
+                text: 'Connect to Base Station'
+                on_press: app.connect_to_base_station()
+
+        Label:
+            id: network_status
+            text: 'Status: waiting'
+            halign: 'left'
+            valign: 'middle'
+            text_size: self.size
+
+<ExistingFlowScreen>:
+    RootWidget:
+        id: root_widget
+
+<CsvUploadScreen>:
+    csv_chooser: csv_chooser
+    csv_status: csv_status
+    BoxLayout:
+        orientation: 'vertical'
+        padding: 12
+        spacing: 8
+
+        Label:
+            text: 'Select CSV File'
+            bold: True
+            size_hint_y: None
+            height: '34dp'
+
+        FileChooserListView:
+            id: csv_chooser
+            filters: ['*.csv']
+
+        Label:
+            id: csv_status
+            text: 'Status: idle'
+            size_hint_y: None
+            height: '40dp'
+            halign: 'left'
+            valign: 'middle'
+            text_size: self.size
+
+        BoxLayout:
+            size_hint_y: None
+            height: '44dp'
+            spacing: 8
+
+            Button:
+                text: 'Import CSV'
+                on_press: app.import_selected_csv()
+
+            Button:
+                text: 'Back'
+                on_press: app.back_to_main_menu()
+
 <RootWidget>:
     orientation: 'horizontal'
     padding: 8
@@ -41,7 +144,47 @@
             halign: 'left'
             valign: 'middle'
             text_size: self.size
-        
+
+        HeadingWidget:
+            id: heading_widget
+            size_hint_y: None
+            height: '130dp'
+
+        BoxLayout:
+            id: rb_tile
+            orientation: 'vertical'
+            size_hint_y: None
+            height: '142dp'
+            padding: 6
+            spacing: 4
+            canvas.before:
+                Color:
+                    rgba: 0.16, 0.32, 0.16, 1
+                Rectangle:
+                    pos: self.pos
+                    size: self.size
+
+            Label:
+                id: rb_status_label
+                text: 'RB: vyber bod'
+                halign: 'left'
+                valign: 'middle'
+                text_size: self.size
+
+            Button:
+                id: rb_confirm_btn
+                text: 'Potvrdit RB'
+                disabled: True
+                size_hint_y: None
+                height: '34dp'
+
+            Label:
+                id: distance_live_label
+                text: 'Vzdálenost: ---'
+                halign: 'left'
+                valign: 'middle'
+                text_size: self.size
+
         BoxLayout:
             size_hint_y: None
             height: '36dp'
@@ -56,3 +199,5 @@
                 id: clear_ref_btn
                 text: 'Clear Ref'
                 size_hint_x: 0.5
+
+

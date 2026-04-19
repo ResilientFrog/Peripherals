@@ -24,10 +24,8 @@ def parse_uploaded_points(upload_file: Path, upload_dir: Path):
 
     for encoding in encodings:
         try:
-            log(f"📄 Trying encoding: {encoding}")
             with open(upload_file, "r", encoding=encoding) as fh:
                 all_lines = fh.readlines()
-            log(f"✅ Successfully read with {encoding}: {len(all_lines)} lines")
             break
         except Exception as exc:
             log(f"⚠️  {encoding} failed: {exc}")
@@ -47,6 +45,16 @@ def parse_uploaded_points(upload_file: Path, upload_dir: Path):
         except ValueError:
             return None
 
+    header_map = {}
+
+    def normalize_key(s):
+        return "".join(ch for ch in s.strip().lower() if ch.isalnum())
+
+    def mm_to_m(value):
+        if value is None:
+            return None
+        return value / 1000.0
+
     try:
         for line_num, line in enumerate(all_lines, start=1):
             line = line.strip()
@@ -62,13 +70,43 @@ def parse_uploaded_points(upload_file: Path, upload_dir: Path):
             if len(parts) < 2:
                 continue
 
+            # Detect and cache header indexes once (Nazev, Rel_X, Rel_Z, Latitude, Longitude, ...)
+            if not header_map:
+                candidate = {normalize_key(col): idx for idx, col in enumerate(parts)}
+                if "nazev" in candidate or "name" in candidate:
+                    header_map = candidate
+                    log(f"  ℹ️  Header detected on line {line_num}: {parts}")
+                    continue
+
             parsed = False
 
-            if len(parts) >= 6:
+            # Header-driven survey parsing: prefer local Rel_X + Rel_Y for rover navigation plane.
+            if header_map:
+                name_idx = header_map.get("nazev", header_map.get("name", 0))
+                rel_x_idx = header_map.get("relx")
+                rel_y_idx = header_map.get("rely")
+                rel_axis2_idx = rel_y_idx if rel_y_idx is not None else header_map.get("relz")
+                if rel_x_idx is not None and rel_axis2_idx is not None:
+                    if rel_x_idx < len(parts) and rel_axis2_idx < len(parts) and name_idx < len(parts):
+                        x = to_float(parts[rel_x_idx])
+                        y = to_float(parts[rel_axis2_idx])
+                        name = parts[name_idx] or f"P{len(points) + 1}"
+                        if x is not None and y is not None:
+                            x = mm_to_m(x)
+                            y = mm_to_m(y)
+                            # App stores local plane as lon=x and lat=axis2 (Y preferred, fallback Z).
+                            points.append({"name": name, "lat": y, "lon": x})
+                            src = "rel_x/rel_y" if rel_y_idx is not None else "rel_x/rel_z(fallback)"
+                            log(f"  ✓ {name}: ({x}, {y}) [header {src}]")
+                            parsed = True
+
+            if not parsed and len(parts) >= 6:
                 x = to_float(parts[1])
                 y = to_float(parts[2])
                 name = parts[0] or f"P{len(points) + 1}"
                 if x is not None and y is not None:
+                    x = mm_to_m(x)
+                    y = mm_to_m(y)
                     points.append({"name": name, "lat": y, "lon": x})
                     log(f"  ✓ {name}: ({x}, {y}) [survey]")
                     parsed = True

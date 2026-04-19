@@ -3,17 +3,22 @@
 
 [Unit]
 Description=Kivy RTK App (runs the Kivy GUI for RTK visualizer)
-After=graphical.target
+After=network-online.target graphical-session.target NetworkManager.service
+Wants=network-online.target
 
 [Service]
 Type=simple
 # Set display and X authority; adjust path if needed
 Environment=DISPLAY=:0
 Environment=XAUTHORITY=/home/berries/.Xauthority
-# Use the venv python to run the app
-ExecStart=/home/berries/Documents/Peripherals/.venv/bin/python /home/berries/Documents/Peripherals/kivy_app/app.py
+# wlan0 = hotspot for CSV upload, wlan1 = base station WiFi for RTCM.
+Environment=BASE_WIFI_IFACE=wlan1
+Environment=ROVER_HOTSPOT_IFACE=wlan0
 WorkingDirectory=/home/berries/Documents/Peripherals/kivy_app
-# Restart=on-failure
+# Use the same launcher as autostart script; it auto-selects available venv.
+ExecStart=/bin/bash /home/berries/Documents/Peripherals/kivy_app/run_kivy.sh
+Restart=always
+RestartSec=3
 
 [Install]
 WantedBy=default.target

@@ -33,7 +33,8 @@ cat > "${ENV_FILE}" <<'EOF'
 
 BASE_WIFI_SSID=CHANGE_ME_SSID
 BASE_WIFI_PASSWORD=CHANGE_ME_PASSWORD
-BASE_WIFI_IFACE=wlan0
+BASE_WIFI_IFACE=wlan1
+ROVER_HOTSPOT_IFACE=wlan0
 
 # Optional explicit RTCM endpoint. Leave as defaults for auto-host discovery.
 RTCM_BASE_HOST=192.168.4.1

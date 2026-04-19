@@ -1,10 +1,27 @@
+import fcntl
 import socket
+import struct
 import http.client
 import threading
 import time
 from typing import Optional, Sequence
 from urllib.parse import urlparse
 from pathlib import Path
+
+
+def _get_interface_ip(ifname: str) -> Optional[str]:
+    """Return the IPv4 address bound to a specific network interface."""
+    try:
+        SIOCGIFADDR = 0x8915
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            result = fcntl.ioctl(
+                s.fileno(),
+                SIOCGIFADDR,
+                struct.pack("256s", ifname[:15].encode()),
+            )
+            return socket.inet_ntoa(result[20:24])
+    except Exception:
+        return None
 
 
 def _get_local_ipv4():
@@ -22,9 +39,7 @@ def _default_host_candidates(primary_host: Optional[str]):
     if primary_host:
         candidates.append(primary_host)
 
-    for host in ("192.168.4.1", "192.168.1.1", "10.0.0.1"):
-        if host not in candidates:
-            candidates.append(host)
+    candidates.append("192.168.4.1")
 
     local_ip = _get_local_ipv4()
     if local_ip and "." in local_ip:
@@ -35,6 +50,56 @@ def _default_host_candidates(primary_host: Optional[str]):
                 candidates.append(host)
 
     return candidates
+
+
+def _drain_rtcm3_frames(buf: bytearray) -> list:
+    """Extract all complete RTCM3 frames from buf in-place.
+    Returns list of (msg_type_or_None, msg_len, frame_size) for each frame found.
+    """
+    frames = []
+    while len(buf) >= 6:
+        idx = buf.find(0xD3)
+        if idx == -1:
+            buf.clear()
+            break
+        if idx > 0:
+            del buf[:idx]
+        if len(buf) < 3:
+            break
+        msg_len = ((buf[1] & 0x03) << 8) | buf[2]
+        frame_size = 3 + msg_len + 3
+        if len(buf) < frame_size:
+            break
+        msg_type = ((buf[3] << 4) | (buf[4] >> 4)) if msg_len >= 2 else None
+        frames.append((msg_type, msg_len, frame_size))
+        del buf[:frame_size]
+    return frames
+
+
+class _RateLimitedWriter:
+    """Buffers serial writes and flushes to the underlying writer at most ``hz``
+    times per second.  Safe to call from multiple threads."""
+
+    def __init__(self, ser, hz: float, stop_event: threading.Event):
+        self._ser = ser
+        self._interval = 1.0 / hz
+        self._buf = bytearray()
+        self._lock = threading.Lock()
+        self._stop = stop_event
+        self._thread = threading.Thread(target=self._flush_loop, daemon=True)
+        self._thread.start()
+
+    def write(self, data: bytes):
+        with self._lock:
+            self._buf += data
+
+    def _flush_loop(self):
+        while not self._stop.is_set():
+            time.sleep(self._interval)
+            with self._lock:
+                if self._buf:
+                    self._ser.write(bytes(self._buf))
+                    self._buf.clear()
 
 
 def _normalize_stream_url(stream_url: Optional[str]):
@@ -79,6 +144,8 @@ def start_rtcm_wifi_bridge(
     data_log_path: Optional[str] = None,
     status_callback=None,
     hosts: Optional[Sequence[str]] = None,
+    interface: Optional[str] = None,
+    rate_hz: Optional[float] = None,
 ):
     """Start background RTCM bridge (TCP -> serial).
 
@@ -90,6 +157,9 @@ def start_rtcm_wifi_bridge(
     current_host = host or "192.168.4.1"
     host_candidates = []
     data_log_file = None
+
+    if rate_hz is not None and rate_hz > 0:
+        ser = _RateLimitedWriter(ser, rate_hz, stop_event)
 
     if data_log_path:
         try:
@@ -134,16 +204,32 @@ def start_rtcm_wifi_bridge(
         except Exception:
             pass
 
-    def log_payload(source: str, payload: bytes):
+    def log_event(label: str):
         if data_log_file is None:
             return
         try:
             ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-            preview_hex = payload[:64].hex(" ")
-            truncated = "..." if len(payload) > 64 else ""
-            data_log_file.write(
-                f"{ts} source={source} bytes={len(payload)} hex={preview_hex}{truncated}\n"
-            )
+            data_log_file.write(f"{ts} {label}\n")
+            data_log_file.flush()
+        except Exception:
+            pass
+
+    def log_payload(buf: bytearray, chunk: bytes):
+        buf += chunk
+        if data_log_file is None:
+            return
+        try:
+            for msg_type, msg_len, frame_size in _drain_rtcm3_frames(buf):
+                ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+                if msg_type is not None:
+                    data_log_file.write(
+                        f"{ts} \U0001f4e1 [RTCM] Parsed type={msg_type} payload={msg_len}B frame={frame_size}B\n"
+                    )
+                else:
+                    data_log_file.write(
+                        f"{ts} \U0001f4e1 [RTCM] payload={msg_len}B frame={frame_size}B\n"
+                    )
+            data_log_file.flush()
         except Exception:
             pass
 
@@ -191,7 +277,8 @@ def start_rtcm_wifi_bridge(
                                 if payload:
                                     ser.write(payload)
                                     bytes_total += len(payload)
-                                    log_payload(endpoint, payload)
+                                    poll_buf = bytearray()
+                                    log_payload(poll_buf, payload)
 
                                 report(connected=True, bytes_total=bytes_total, error="")
                                 print(
@@ -222,6 +309,8 @@ def start_rtcm_wifi_bridge(
 
                             report(connected=True, bytes_total=bytes_total, error="")
                             print(f"✅ RTCM: connected to stream {endpoint}")
+                            log_event(f"✅ [RTCM] stream connected: {endpoint}")
+                            stream_buf = bytearray()
 
                             while not stop_event.is_set():
                                 payload = response.read(4096)
@@ -230,7 +319,7 @@ def start_rtcm_wifi_bridge(
 
                                 ser.write(payload)
                                 bytes_total += len(payload)
-                                log_payload(endpoint, payload)
+                                log_payload(stream_buf, payload)
                                 report(connected=True, bytes_total=bytes_total, error="")
                         finally:
                             conn.close()
@@ -238,10 +327,14 @@ def start_rtcm_wifi_bridge(
                     current_host = host_candidates[host_index % len(host_candidates)]
                     host_index += 1
                     print(f"📶 RTCM: connecting to base {current_host}:{port} ...")
-                    with socket.create_connection((current_host, port), timeout=3) as sock:
-                        sock.settimeout(2)
+                    iface_ip = _get_interface_ip(interface) if interface else None
+                    src = (iface_ip, 0) if iface_ip else None
+                    with socket.create_connection((current_host, port), timeout=3, source_address=src) as sock:
+                        sock.settimeout(15)
                         report(connected=True, bytes_total=bytes_total, error="")
                         print(f"✅ RTCM: connected to base {current_host}:{port}")
+                        log_event(f"✅ [RTCM] stream connected: {current_host}:{port}")
+                        tcp_buf = bytearray()
 
                         while not stop_event.is_set():
                             payload = sock.recv(4096)
@@ -250,14 +343,16 @@ def start_rtcm_wifi_bridge(
 
                             ser.write(payload)
                             bytes_total += len(payload)
-                            log_payload(f"{current_host}:{port}", payload)
+                            log_payload(tcp_buf, payload)
                             report(connected=True, bytes_total=bytes_total, error="")
             except Exception as exc:
                 report(connected=False, bytes_total=bytes_total, error=str(exc))
                 if stream_config:
                     print(f"⚠️  RTCM: stream error on {stream_config['url']} ({exc}), retrying")
+                    log_event(f"⚠️  [RTCM] link error on {stream_config['url']}: {exc}")
                 else:
                     print(f"⚠️  RTCM: link error on {current_host}:{port} ({exc}), trying next host")
+                    log_event(f"⚠️  [RTCM] link error on {current_host}:{port}: {exc}")
                 time.sleep(1)
 
         try:
@@ -268,4 +363,4 @@ def start_rtcm_wifi_bridge(
 
     thread = threading.Thread(target=loop, daemon=True)
     thread.start()
-    return stop_event, thread
+    return stop_event, thread, log_event

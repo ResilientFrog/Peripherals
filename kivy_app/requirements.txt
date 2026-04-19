@@ -1,2 +1,4 @@
 kivy>=2.0.0
 flask>=2.0.0
+adafruit-blinka>=8.0.0
+adafruit-circuitpython-bno08x>=1.2.0
