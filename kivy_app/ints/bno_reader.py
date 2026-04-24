@@ -17,6 +17,19 @@ adafruit_bno08x._FEATURE_ENABLE_TIMEOUT = 8.0
 
 class BnoReaderMixin:
 
+    def start_bno085_after_heading_lock(self):
+        """
+        Call this after heading lock is acquired (RTK Fixed). Starts BNO085 loop in a thread if not already running.
+        """
+        import threading
+        if (
+            not hasattr(self, '_bno_thread')
+            or not self._bno_thread
+            or not self._bno_thread.is_alive()
+        ):
+            self._bno_thread = threading.Thread(target=self._read_bno085_loop, daemon=True)
+            self._bno_thread.start()
+
     @staticmethod
     def _quat_to_yaw_deg(quat):
         i, j, k, r = quat
@@ -59,16 +72,6 @@ class BnoReaderMixin:
     def _read_bno085_loop(self):
         while True:
             try:
-                if not self._gnss_heading_ready():
-                    self.bno_connected = False
-                    self.bno_heading_deg = None
-                    self.bno_heading_cardinal = None
-                    self.bno_mode = None
-                    self.bno_address = None
-                    self.bno_last_error = "waiting GNSS heading from movement"
-                    time.sleep(0.5)
-                    continue
-
                 i2c = busio.I2C(board.SCL, board.SDA, frequency=100000)
                 time.sleep(0.2)
                 sensor, address = self._connect_bno_sensor(i2c)
@@ -79,7 +82,7 @@ class BnoReaderMixin:
                 self.bno_mode = mode
                 self.bno_last_error = ""
                 self.bno_recovering = False
-                if self.rtcm_log_event is not None and self.gnss_heading_lock_deg is not None:
+                if self.rtcm_log_event is not None and hasattr(self, 'gnss_heading_lock_deg') and self.gnss_heading_lock_deg is not None:
                     self.rtcm_log_event(
                         f"[BNO] started mode={mode} addr=0x{address:02X} offset={self.gnss_heading_lock_deg:.2f}°"
                     )
@@ -88,9 +91,6 @@ class BnoReaderMixin:
                 consecutive_read_errors = 0
 
                 while True:
-                    if not self._gnss_heading_ready():
-                        raise RuntimeError("GNSS heading no longer ready")
-
                     try:
                         if mode == "rotation":
                             quat = sensor.quaternion
@@ -100,14 +100,27 @@ class BnoReaderMixin:
                             quat = sensor.geomagnetic_quaternion
 
                         if quat is None:
-                            raise RuntimeError("Quaternion not ready")
+                            # Log warning and skip this sample, do not set heading to None
+                            if self.rtcm_log_event is not None:
+                                self.rtcm_log_event("[BNO] Warning: Quaternion not ready, skipping sample.")
+                            time.sleep(0.04)
+                            continue
 
                         heading = self._quat_to_yaw_deg(quat)
-                        self.bno_quaternion = quat
-                        self.bno_heading_deg = heading
-                        self.bno_heading_cardinal = self._heading_to_cardinal(heading)
-                        last_good_sample_ts = time.time()
-                        consecutive_read_errors = 0
+                        if heading is not None:
+                            self.bno_quaternion = quat
+                            self.bno_heading_deg = heading
+                            self.bno_heading_cardinal = self._heading_to_cardinal(heading)
+                            last_good_sample_ts = time.time()
+                            consecutive_read_errors = 0
+                        else:
+                            if self.rtcm_log_event is not None:
+                                self.rtcm_log_event("[BNO] Warning: Heading calculation failed, skipping sample.")
+                            consecutive_read_errors += 1
+                            if consecutive_read_errors >= 25 or (time.time() - last_good_sample_ts) > 1.5:
+                                raise RuntimeError("BNO sample stalled: heading calculation failed")
+                            time.sleep(0.04)
+                            continue
                     except Exception as exc:
                         consecutive_read_errors += 1
                         if consecutive_read_errors >= 25 or (time.time() - last_good_sample_ts) > 1.5:

@@ -76,6 +76,7 @@ class KivyRTKApp(App, GnssReaderMixin, BnoReaderMixin, NavMixin, NetworkMixin):
         self.gnss_heading_lock_ts = 0.0
         self.rover_speed_ms = None
         self._prev_gnss_for_heading = None
+        self._stored_heading_offset = None  # Store GNSS heading lock here
         self._widget_heading_smoothed = None
         self._widget_heading_alpha = 0.35
         self._last_angle_log_ts = 0.0
@@ -216,18 +217,17 @@ class KivyRTKApp(App, GnssReaderMixin, BnoReaderMixin, NavMixin, NetworkMixin):
     # --- Heading visual helpers ---
 
     def _get_visual_heading_deg(self):
-        if self.bno_connected and self.bno_heading_deg is not None and self.gnss_heading_lock_deg is not None:
-            heading = (self.bno_heading_deg + self.gnss_heading_lock_deg) % 360.0
+        # Always use BNO085 + stored offset if available
+        if self.bno_connected and self.bno_heading_deg is not None:
+            if self._stored_heading_offset is not None:
+                heading = (self.bno_heading_deg + self._stored_heading_offset) % 360.0
+            else:
+                heading = self.bno_heading_deg % 360.0
             self._last_visual_heading_deg = heading
             self._heading_hold_active = False
             return heading
 
-        if self.gnss_heading_lock_deg is not None:
-            heading = self.gnss_heading_lock_deg % 360.0
-            self._last_visual_heading_deg = heading
-            self._heading_hold_active = False
-            return heading
-
+        # Fallback to last visual heading if BNO not available
         if self._last_visual_heading_deg is not None:
             self._heading_hold_active = True
             return self._last_visual_heading_deg
@@ -236,13 +236,22 @@ class KivyRTKApp(App, GnssReaderMixin, BnoReaderMixin, NavMixin, NetworkMixin):
         return None
 
     def _get_visual_heading_source(self):
-        if self.bno_connected and self.bno_heading_deg is not None and self.gnss_heading_lock_deg is not None:
-            return "PHI"
-        if self.gnss_heading_lock_deg is not None:
-            return "GNSS-LOCK"
+        if self.bno_connected and self.bno_heading_deg is not None:
+            return "BNO+OFFSET" if self._stored_heading_offset is not None else "BNO"
         if self._heading_hold_active:
             return "HOLD"
         return "NONE"
+    def store_gnss_heading_offset(self):
+        """
+        Call this after RTK fix and heading lock is acquired. Stores the heading lock as offset for BNO.
+        """
+        if self.gnss_heading_lock_deg is not None:
+            self._stored_heading_offset = self.gnss_heading_lock_deg
+    def clear_gnss_heading_offset(self):
+        """
+        Optionally call this to clear the stored heading offset.
+        """
+        self._stored_heading_offset = None
 
     def _update_heading_widget(self, _dt):
         if not hasattr(self, "heading_widget"):

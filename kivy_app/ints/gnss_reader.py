@@ -183,24 +183,6 @@ class GnssReaderMixin:
                                         self._prev_gnss_for_heading = (lat, lon)
                                 else:
                                     self._prev_gnss_for_heading = (lat, lon)
-                                if self.gnss_heading_lock_deg is not None:
-                                    self.rover_heading_deg = self.gnss_heading_lock_deg
-                                    self.rover_heading_cardinal = self.gnss_heading_lock_cardinal
-                                    self.rover_north_offset_deg = self._signed_north_offset_deg(
-                                        self.gnss_heading_lock_deg
-                                    )
-                            elif self.rover_carr_soln != 2 or not rtcm_flowing:
-                                if self.gnss_heading_lock_deg is not None and self.rtcm_log_event is not None:
-                                    self.rtcm_log_event(
-                                        "[HEAD-LOCK] GNSS lock cleared (left RTK Fixed or RTCM stopped)"
-                                    )
-                                self._prev_gnss_for_heading = None
-                                self.gnss_heading_lock_deg = None
-                                self.gnss_heading_lock_cardinal = None
-                                self.gnss_heading_lock_ts = 0.0
-                                self.rover_heading_deg = None
-                                self.rover_heading_cardinal = None
-                                self.rover_north_offset_deg = None
 
                             self.rover_gnss = (lat, lon)
 
