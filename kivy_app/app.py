@@ -106,6 +106,7 @@ class KivyRTKApp(App, GnssReaderMixin, BnoReaderMixin, NavMixin, NetworkMixin):
         self.bno_address = None
         self.bno_last_error = ""
         self.bno_recovering = False
+        self._bno_thread = None
 
         self.zed_connected = False
         self.gnss_popup_shown = False
@@ -117,8 +118,13 @@ class KivyRTKApp(App, GnssReaderMixin, BnoReaderMixin, NavMixin, NetworkMixin):
         self.rtcm_bridge_started = False
         self.rtcm_stop_event = None
         self.rtcm_restart_requested = False
+        self.rtk_last_fixed_ts = 0.0
+        self.rtk_fix_recovery_timeout_s = 20.0
+        self.rtcm_last_reinit_ts = 0.0
+        self.rtcm_reinit_cooldown_s = 12.0
         self.base_wifi_connected = False
         self.base_start_requested = False
+        self.heading_walk_prompt_active = False
         self.last_wifi_attempt_ts = 0.0
         self.wifi_retry_interval = 10.0
         self.wifi_check_in_progress = False
@@ -167,7 +173,6 @@ class KivyRTKApp(App, GnssReaderMixin, BnoReaderMixin, NavMixin, NetworkMixin):
         self._set_startup_status("")
         threading.Thread(target=self._startup_hotspot_thread, daemon=True).start()
         threading.Thread(target=self._read_zed_f9p_loop, daemon=True).start()
-        threading.Thread(target=self._read_bno085_loop, daemon=True).start()
 
         Clock.schedule_interval(self._monitor_gnss_status, 1.0)
         Clock.schedule_interval(self._update_heading_widget, 0.05)
@@ -219,6 +224,8 @@ class KivyRTKApp(App, GnssReaderMixin, BnoReaderMixin, NavMixin, NetworkMixin):
     def _get_visual_heading_deg(self):
         # Always use BNO085 + stored offset if available
         if self.bno_connected and self.bno_heading_deg is not None:
+            if self._stored_heading_offset is None and self.gnss_heading_lock_deg is not None:
+                self.store_gnss_heading_offset()
             if self._stored_heading_offset is not None:
                 heading = (self.bno_heading_deg + self._stored_heading_offset) % 360.0
             else:
@@ -245,8 +252,10 @@ class KivyRTKApp(App, GnssReaderMixin, BnoReaderMixin, NavMixin, NetworkMixin):
         """
         Call this after RTK fix and heading lock is acquired. Stores the heading lock as offset for BNO.
         """
-        if self.gnss_heading_lock_deg is not None:
-            self._stored_heading_offset = self.gnss_heading_lock_deg
+        if self.gnss_heading_lock_deg is None or self.bno_heading_deg is None:
+            return False
+        self._stored_heading_offset = (self.gnss_heading_lock_deg - self.bno_heading_deg) % 360.0
+        return True
     def clear_gnss_heading_offset(self):
         """
         Optionally call this to clear the stored heading offset.

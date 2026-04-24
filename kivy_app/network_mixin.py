@@ -112,6 +112,7 @@ class NetworkMixin:
         self.network_transition_running = False
         self.base_wifi_connected = False
         self.base_start_requested = False
+        self.heading_walk_prompt_active = False
 
         if not ok:
             self._set_main_status(message)
@@ -128,14 +129,18 @@ class NetworkMixin:
         self.network_transition_running = False
         if not ok:
             self.base_wifi_connected = False
+            self.heading_walk_prompt_active = False
         self._set_main_status(message)
 
         self.base_start_requested = True
         self.base_wifi_connected = True
+        self.heading_walk_prompt_active = True
         self.last_wifi_attempt_ts = time.time()
         self._set_main_status(message)
         self.root.current = "existing_flow"
-        self.status_label.text = "Status: Base station connected, continuing application flow"
+        self.status_label.text = (
+            "Status: Base station connected. Cekam na RTCM, pak jdi rovne pro heading lock."
+        )
 
     def _base_wifi_is_configured(self):
         return bool(self.base_wifi_ssid) and bool(self.base_wifi_password)

@@ -64,6 +64,25 @@ class GnssReaderMixin:
         self.rtcm_restart_requested = False
         self.rtcm_last_bytes_ts = 0.0
 
+    def _request_rtcm_reinit(self, reason):
+        now = time.time()
+        if (now - self.rtcm_last_reinit_ts) < self.rtcm_reinit_cooldown_s:
+            return
+        self.rtcm_last_reinit_ts = now
+        try:
+            if self.rtcm_stop_event is not None:
+                self.rtcm_stop_event.set()
+        except Exception:
+            pass
+        self.rtcm_stop_event = None
+        self.rtcm_connected = False
+        self.rtcm_bridge_started = False
+        self.rtcm_restart_requested = False
+        self.rtcm_last_bytes_ts = 0.0
+        self.rtcm_last_error = f"RTCM reinit: {reason}"
+        if self.rtcm_log_event is not None:
+            self.rtcm_log_event(f"[RTCM-REINIT] {reason}")
+
     def _try_start_base_and_rtcm(self, ser):
         if self.rtcm_bridge_started or not self.base_start_requested:
             return
@@ -99,6 +118,13 @@ class GnssReaderMixin:
             self.rtcm_last_error = str(error)
         if host:
             self.rtcm_host = str(host)
+
+        self.heading_walk_prompt_active = (
+            self.base_start_requested
+            and self.rtcm_connected
+            and self.rtcm_last_bytes_ts > 0
+            and self.gnss_heading_lock_deg is None
+        )
 
         if (
             self.base_start_requested
@@ -163,6 +189,7 @@ class GnssReaderMixin:
                             rtcm_flowing = self.rtcm_connected and self.rtcm_last_bytes_ts > 0
 
                             if self.rover_carr_soln == 2 and rtcm_flowing:
+                                self.rtk_last_fixed_ts = time.time()
                                 if self._prev_gnss_for_heading is not None:
                                     prev_lat, prev_lon = self._prev_gnss_for_heading
                                     dist = self._haversine_distance_m(prev_lat, prev_lon, lat, lon)
@@ -175,6 +202,13 @@ class GnssReaderMixin:
                                             self.rover_heading_deg = bearing
                                             self.rover_heading_cardinal = self.gnss_heading_lock_cardinal
                                             self.rover_north_offset_deg = self._signed_north_offset_deg(bearing)
+                                            self.heading_walk_prompt_active = False
+                                            self.start_bno085_after_heading_lock()
+                                            if self.store_gnss_heading_offset() and self.rtcm_log_event is not None:
+                                                self.rtcm_log_event(
+                                                    f"[HEAD-OFFSET] stored={self._stored_heading_offset:.2f}° "
+                                                    f"(lock={self.gnss_heading_lock_deg:.2f}° bno={self.bno_heading_deg:.2f}°)"
+                                                )
                                             if self.rtcm_log_event is not None:
                                                 self.rtcm_log_event(
                                                     f"[HEAD-LOCK] GNSS lock acquired: {bearing:.2f}° "
@@ -183,6 +217,15 @@ class GnssReaderMixin:
                                         self._prev_gnss_for_heading = (lat, lon)
                                 else:
                                     self._prev_gnss_for_heading = (lat, lon)
+                            elif (
+                                self.base_start_requested
+                                and self.rtcm_bridge_started
+                                and self.rtk_last_fixed_ts > 0
+                                and (time.time() - self.rtk_last_fixed_ts) > self.rtk_fix_recovery_timeout_s
+                            ):
+                                self._request_rtcm_reinit(
+                                    f"RTK FIX lost for >{self.rtk_fix_recovery_timeout_s:.0f}s"
+                                )
 
                             self.rover_gnss = (lat, lon)
 
@@ -207,11 +250,7 @@ class GnssReaderMixin:
                                 )
 
                             if self.rtcm_restart_requested and self.rtcm_stop_event is not None:
-                                self.rtcm_stop_event.set()
-                                self.rtcm_connected = False
-                                self.rtcm_bridge_started = False
-                                self.rtcm_stop_event = None
-                                self.rtcm_restart_requested = False
+                                self._request_rtcm_reinit("stale RTCM stream")
 
                             self._try_start_base_and_rtcm(ser)
                     except Exception:
@@ -232,6 +271,7 @@ class GnssReaderMixin:
                 self.rtcm_last_bytes_ts = 0.0
                 self.rtcm_bridge_started = False
                 self.rtcm_restart_requested = False
+                self.rtk_last_fixed_ts = 0.0
                 self.rover_fix_type = 0
                 self.rover_carr_soln = 0
                 self.rover_num_sv = 0
@@ -242,5 +282,6 @@ class GnssReaderMixin:
                 self.gnss_heading_lock_deg = None
                 self.gnss_heading_lock_cardinal = None
                 self.gnss_heading_lock_ts = 0.0
+                self.heading_walk_prompt_active = False
                 self.rover_speed_ms = None
                 time.sleep(1)

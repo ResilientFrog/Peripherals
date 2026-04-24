@@ -1,4 +1,5 @@
 import math
+import time
 
 from kivy.clock import Clock
 from kivy.metrics import dp
@@ -44,16 +45,18 @@ class NavMixin:
         if heading is not None:
             source = self._get_visual_heading_source()
             parts = [f"Angle φ[{source}]: {heading:.1f}°"]
-            if source == "GNSS-LOCK" and self.rover_north_offset_deg is not None:
+            if source == "BNO+OFFSET" and self._stored_heading_offset is not None:
+                parts.append(f"off={self._stored_heading_offset:+.1f}°")
+            if source == "BNO" and self.rover_north_offset_deg is not None:
                 parts.append(f"dN={self.rover_north_offset_deg:+.1f}°")
-            if source == "PHI" and self.gnss_heading_lock_deg is not None and self.bno_heading_deg is not None:
-                parts.append(f"(LOCK {self.gnss_heading_lock_deg:.1f}° + BNO {self.bno_heading_deg:.1f}°)")
             return " ".join(parts)
         return None
 
     def _bno_text(self):
         if self.gnss_heading_lock_deg is None:
-            return "BNO: hold (waiting GNSS heading lock from movement)"
+            if self.heading_walk_prompt_active:
+                return "BNO: waiting heading lock (RTK FIX + walk straight)"
+            return "BNO: waiting GNSS heading lock from movement"
         if self.bno_connected and self.bno_heading_deg is not None:
             mode = self.bno_mode or "?"
             addr = f"0x{self.bno_address:02X}" if self.bno_address is not None else "?"
@@ -81,9 +84,9 @@ class NavMixin:
             parts.append(f"GNSS_LOCK {self.gnss_heading_lock_deg:.1f}°")
         if self.bno_heading_deg is not None:
             parts.append(f"BNO_REL {self.bno_heading_deg:.1f}°")
-        if self.gnss_heading_lock_deg is not None and self.bno_heading_deg is not None:
-            phi = (self.gnss_heading_lock_deg + self.bno_heading_deg) % 360.0
-            parts.append(f"WIDGET={phi:.1f}° (BNO_REL + GNSS_LOCK)")
+        visual_heading = self._get_visual_heading_deg()
+        if visual_heading is not None:
+            parts.append(f"WIDGET={visual_heading:.1f}°")
 
         return " | ".join(parts)
 
@@ -96,21 +99,31 @@ class NavMixin:
         if self._has_gnss_fix():
             self.gnss_popup_shown = False
             position_text = self._position_status_text()
+            walk_prompt = ""
+            if self.heading_walk_prompt_active:
+                walk_prompt = "\nHeading init: jdi rovne pro ziskani heading locku"
             self.status_label.text = (
                 f"Status: {rtk_status_text(self.rover_fix_type, self.rover_carr_soln)} "
                 f"({fix_type_to_text(self.rover_fix_type)}, {carr_soln_to_text(self.rover_carr_soln)}) | "
-                f"{self._rtcm_status_text()}\n{position_text}"
+                f"{self._rtcm_status_text()}\n{position_text}{walk_prompt}"
             )
             return
 
         if self.zed_connected:
             position_text = self._position_status_text()
             lon_lat_text = self._current_lon_lat_text()
+            recovery_txt = ""
+            if (
+                self.base_start_requested
+                and self.rtcm_last_reinit_ts > 0
+                and (time.time() - self.rtcm_last_reinit_ts) < 6.0
+            ):
+                recovery_txt = " | RTCM recovery..."
             self.status_label.text = (
                 f"Status: ZED-F9P connected, searching for fix "
                 f"({rtk_status_text(self.rover_fix_type, self.rover_carr_soln)}, "
                 f"{fix_type_to_text(self.rover_fix_type)}, {carr_soln_to_text(self.rover_carr_soln)}) | "
-                f"{self._rtcm_status_text()}\n{lon_lat_text} | {position_text}"
+                f"{self._rtcm_status_text()}{recovery_txt}\n{lon_lat_text} | {position_text}"
             )
         else:
             self.status_label.text = "Status: ZED-F9P not connected. Turn it on and check /dev/ttyACM0"
@@ -332,8 +345,10 @@ class NavMixin:
 
     def _confirm_rb_point(self):
         if not self._has_gnss_fix() or self.rover_gnss is None:
+            self.status_label.text = "Pro potvrzeni B0 je potreba GNSS FIX."
             return
-        if self.csv_b0_lat is None:
+        if self.csv_b0_lat is None or self.csv_b0_lon is None:
+            self.status_label.text = "B0 neni v CSV nebo nema globalni souradnice."
             return
 
         self.rb_confirmed = True
@@ -364,7 +379,9 @@ class NavMixin:
         self._render_point_buttons()
         self._update_rb_guidance()
         self._update_rb_tile_text()
-        self.status_label.text = "B0 potvrzen. Vyber cílový bod B1/B2/..."
+        self.status_label.text = (
+            f"B0 potvrzen. Globalni posun: dLat={shift_lat:+.8f}, dLon={shift_lon:+.8f}. Vyber B1/B2/..."
+        )
         if self.rtcm_log_event is not None:
             self.rtcm_log_event(
                 f"[B0] confirmed lat={gnss_lat:.8f} lon={gnss_lon:.8f} "
