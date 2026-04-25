@@ -131,7 +131,8 @@ class GnssReaderMixin:
             and self.rtcm_bridge_started
             and self.rtcm_connected
             and self.rtcm_last_bytes_ts > 0
-            and (time.time() - self.rtcm_last_bytes_ts) > 8.0
+            and (time.time() - self.rtcm_last_bytes_ts) > 20.0
+            and self.rover_carr_soln == 0
         ):
             self.rtcm_restart_requested = True
 
@@ -176,6 +177,7 @@ class GnssReaderMixin:
                         if msg and msg.identity == "NAV-PVT":
                             lat = msg.lat
                             lon = msg.lon
+                            self.rover_gnss_raw = (lat, lon)
                             self.rover_fix_type = getattr(msg, "fixType", 0)
                             self.rover_carr_soln = getattr(msg, "carrSoln", 0)
                             self.rover_num_sv = getattr(msg, "numSV", 0)
@@ -189,6 +191,7 @@ class GnssReaderMixin:
                             rtcm_flowing = self.rtcm_connected and self.rtcm_last_bytes_ts > 0
 
                             if self.rover_carr_soln == 2 and rtcm_flowing:
+                                self.rtk_float_since_ts = 0.0
                                 self.rtk_last_fixed_ts = time.time()
                                 if self._prev_gnss_for_heading is not None:
                                     prev_lat, prev_lon = self._prev_gnss_for_heading
@@ -220,14 +223,50 @@ class GnssReaderMixin:
                             elif (
                                 self.base_start_requested
                                 and self.rtcm_bridge_started
+                                and rtcm_flowing
+                                and self.rover_carr_soln == 1
+                            ):
+                                if self.rtk_float_since_ts <= 0.0:
+                                    self.rtk_float_since_ts = time.time()
+                                elif (time.time() - self.rtk_float_since_ts) > self.rtk_float_reinit_timeout_s:
+                                    self._request_rtcm_reinit(
+                                        f"RTK FLOAT for >{self.rtk_float_reinit_timeout_s:.0f}s"
+                                    )
+                                    self.rtk_float_since_ts = 0.0
+                            elif (
+                                self.base_start_requested
+                                and self.rtcm_bridge_started
                                 and self.rtk_last_fixed_ts > 0
                                 and (time.time() - self.rtk_last_fixed_ts) > self.rtk_fix_recovery_timeout_s
+                                and self.rover_carr_soln == 0
                             ):
                                 self._request_rtcm_reinit(
                                     f"RTK FIX lost for >{self.rtk_fix_recovery_timeout_s:.0f}s"
                                 )
+                                self.rtk_float_since_ts = 0.0
+                            else:
+                                self.rtk_float_since_ts = 0.0
 
-                            self.rover_gnss = (lat, lon)
+                            # Navigation quality gate:
+                            # Use fresh GNSS position only when RTK Fixed is present
+                            # and horizontal accuracy is within configured threshold.
+                            nav_quality_ok = True
+                            hold_reason = ""
+                            if getattr(self, "nav_require_rtk_fixed", True):
+                                nav_quality_ok = nav_quality_ok and (self.rover_carr_soln == 2)
+                                if not nav_quality_ok:
+                                    hold_reason = "RTK not fixed"
+                            max_h_acc = getattr(self, "nav_max_h_acc_m", None)
+                            if max_h_acc is not None and self.rover_h_acc_m is not None:
+                                if self.rover_h_acc_m > max_h_acc:
+                                    nav_quality_ok = False
+                                    hold_reason = f"hAcc>{max_h_acc:.2f}m"
+                            self.rover_gnss_quality_ok = nav_quality_ok
+                            self.rover_gnss_hold_reason = hold_reason if not nav_quality_ok else ""
+                            if nav_quality_ok:
+                                self.rover_gnss = (lat, lon)
+                            elif not getattr(self, "nav_hold_last_good_gnss", True):
+                                self.rover_gnss = None
 
                             if self.rtcm_log_event is not None:
                                 fix_txt = fix_type_to_text(self.rover_fix_type)
@@ -246,7 +285,8 @@ class GnssReaderMixin:
                                     f"| hAcc: {h_acc_mm/1000.0:.4f} m | vAcc: {v_acc_mm/1000.0:.4f} m "
                                     f"| Head: {head_str} ({cardinal}) "
                                     f"| Speed: {spd:.3f} m/s ({spd_kmh:.2f} km/h) "
-                                    f"| gnssFixOK={gnss_fix_ok}"
+                                    f"| gnssFixOK={gnss_fix_ok} "
+                                    f"| navQ={'OK' if nav_quality_ok else 'HOLD'}"
                                 )
 
                             if self.rtcm_restart_requested and self.rtcm_stop_event is not None:
@@ -272,10 +312,15 @@ class GnssReaderMixin:
                 self.rtcm_bridge_started = False
                 self.rtcm_restart_requested = False
                 self.rtk_last_fixed_ts = 0.0
+                self.rtk_float_since_ts = 0.0
                 self.rover_fix_type = 0
                 self.rover_carr_soln = 0
                 self.rover_num_sv = 0
                 self.rover_h_acc_m = None
+                self.rover_gnss = None
+                self.rover_gnss_raw = None
+                self.rover_gnss_quality_ok = False
+                self.rover_gnss_hold_reason = "GNSS disconnected"
                 self.rover_heading_deg = None
                 self.rover_heading_cardinal = None
                 self.rover_north_offset_deg = None

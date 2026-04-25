@@ -87,6 +87,11 @@ class NavMixin:
         visual_heading = self._get_visual_heading_deg()
         if visual_heading is not None:
             parts.append(f"WIDGET={visual_heading:.1f}°")
+        if self.nav_bearing_deg is not None:
+            parts.append(f"TARGET={self.nav_bearing_deg:.1f}°")
+            if visual_heading is not None:
+                turn_delta = ((self.nav_bearing_deg - visual_heading + 180.0) % 360.0) - 180.0
+                parts.append(f"TURN={turn_delta:+.1f}°")
 
         return " | ".join(parts)
 
@@ -148,6 +153,7 @@ class NavMixin:
             self.map_container.rover_pos = None
 
         self._update_rb_guidance()
+        self.map_container.nav_target_in_zone = bool(getattr(self, "nav_target_in_zone", False))
         self.map_container._redraw()
 
     # --- Points / B0 ---
@@ -155,8 +161,11 @@ class NavMixin:
     def _update_points(self, points):
         b0_point = self._find_b0_point(points)
         if b0_point is not None:
-            self.csv_b0_lat = float(b0_point["lat"])
-            self.csv_b0_lon = float(b0_point["lon"])
+            b0_global_lat = b0_point.get("global_lat")
+            b0_global_lon = b0_point.get("global_lon")
+            # B0 must use global coordinates for GNSS shift computation.
+            self.csv_b0_lat = float(b0_global_lat) if b0_global_lat is not None else float(b0_point["lat"])
+            self.csv_b0_lon = float(b0_global_lon) if b0_global_lon is not None else float(b0_point["lon"])
             points = [pt for pt in points if not self._is_b0_point(pt)]
         else:
             self.csv_b0_lat = None
@@ -173,6 +182,11 @@ class NavMixin:
         self.nav_target_name = None
         self.nav_distance_m = None
         self.nav_bearing_deg = None
+        self.nav_target_dwell_start_ts = 0.0
+        self.nav_target_reached = False
+        self.nav_target_reached_ts = 0.0
+        self.nav_target_in_zone = False
+        self.nav_confirmed_targets = set()
         self.map_container.nav_heading_deg = None
         self._render_point_buttons()
 
@@ -183,11 +197,14 @@ class NavMixin:
             rel_y = pt["lat"]
             rel_x = pt["lon"]
             is_b_target = self._is_b_target_point(pt)
+            is_confirmed_target = i in self.nav_confirmed_targets
             btn_text = f"{name} (Rel_X={rel_x:.2f}, Rel_Y={rel_y:.2f})"
+            if is_confirmed_target:
+                btn_text += " [OK]"
             disabled = False
 
             if self.rb_confirmed:
-                if not is_b_target or i == self.rb_selected_idx:
+                if not is_b_target or i == self.rb_selected_idx or is_confirmed_target:
                     disabled = True
             else:
                 disabled = True
@@ -220,6 +237,10 @@ class NavMixin:
                     return
                 self.nav_target_idx = idx
                 self.nav_target_name = name
+                self.nav_target_dwell_start_ts = 0.0
+                self.nav_target_reached = False
+                self.nav_target_reached_ts = 0.0
+                self.nav_target_in_zone = False
                 self.status_label.text = f"Selected target: {name}"
                 if self.rtcm_log_event is not None:
                     self.rtcm_log_event(f"[NAV] target selected name={name}")
@@ -245,6 +266,46 @@ class NavMixin:
 
     # --- Navigation guidance ---
 
+    def _on_rb_confirm_button(self):
+        if not self.rb_confirmed:
+            self._confirm_rb_point()
+            return
+        self._confirm_active_nav_target()
+
+    def _confirm_active_nav_target(self):
+        if self.nav_target_idx is None:
+            self.status_label.text = "Vyber cíl B1..Bn."
+            return
+        if self.nav_distance_m is None:
+            self.status_label.text = "Cekam na vzdalenost k cili."
+            return
+        threshold_m = float(getattr(self, "nav_manual_confirm_distance_m", 0.05))
+        if self.nav_distance_m > threshold_m:
+            self.status_label.text = (
+                f"Mimo zónu potvrzení: {self.nav_distance_m:.2f} m (potřeba <= {threshold_m:.2f} m)"
+            )
+            return
+
+        reached_idx = self.nav_target_idx
+        reached_name = self.nav_target_name or f"B{reached_idx + 1}"
+        reached_dist = self.nav_distance_m
+        self.nav_confirmed_targets.add(reached_idx)
+        self.nav_target_reached = True
+        self.nav_target_reached_ts = time.time()
+        self.nav_target_idx = None
+        self.nav_target_name = None
+        self.nav_distance_m = None
+        self.nav_bearing_deg = None
+        self.nav_target_dwell_start_ts = 0.0
+        self.nav_target_in_zone = False
+        self.map_container.nav_heading_deg = None
+        self._render_point_buttons()
+        self.status_label.text = f"{reached_name} potvrzen ručně ({reached_dist:.2f} m). Vyber další cíl."
+        if self.rtcm_log_event is not None:
+            self.rtcm_log_event(
+                f"[NAV-MANUAL] confirmed target name={reached_name} idx={reached_idx} dist={reached_dist:.3f}m"
+            )
+
     def _update_rb_guidance(self):
         rover_pos = self.map_container.rover_pos
 
@@ -253,6 +314,7 @@ class NavMixin:
             self.rb_bearing_deg = None
             self.nav_distance_m = None
             self.nav_bearing_deg = None
+            self.nav_target_in_zone = False
             self.map_container.nav_heading_deg = None
             self._update_rb_tile_text()
             self._update_distance_display()
@@ -263,6 +325,7 @@ class NavMixin:
         if target_point is None:
             self.nav_distance_m = None
             self.nav_bearing_deg = None
+            self.nav_target_in_zone = False
             self.map_container.nav_heading_deg = None
             self._update_rb_tile_text()
             self._update_distance_display()
@@ -274,6 +337,7 @@ class NavMixin:
         if target_lon is None or target_lat is None:
             self.nav_distance_m = None
             self.nav_bearing_deg = None
+            self.nav_target_in_zone = False
             self.map_container.nav_heading_deg = None
             self._update_rb_tile_text()
             self._update_distance_display()
@@ -286,6 +350,8 @@ class NavMixin:
         dlat = target_lat - rover_lat
         dlon = target_lon - rover_lon
         self.map_container.nav_heading_deg = (math.degrees(math.atan2(dlon, dlat)) % 360.0)
+        threshold_m = float(getattr(self, "nav_manual_confirm_distance_m", 0.05))
+        self.nav_target_in_zone = self.nav_distance_m <= threshold_m
 
         self._update_rb_tile_text()
         self._update_distance_display()
@@ -317,12 +383,16 @@ class NavMixin:
             return
 
         nav_name = nav_point.get("name", "B")
+        zone_txt = ""
+        threshold_m = float(getattr(self, "nav_manual_confirm_distance_m", 0.05))
+        if self.nav_target_in_zone:
+            zone_txt = f" | IN ZONE <= {threshold_m:.2f}m"
         self.rb_status_label.text = (
             f"B0 potvrzen | Cíl {nav_name}\n"
-            f"go: dist={self.nav_distance_m:.2f}m azN={self.nav_bearing_deg:.2f}° | {heading_txt}"
+            f"go: dist={self.nav_distance_m:.2f}m azN={self.nav_bearing_deg:.2f}°{zone_txt} | {heading_txt}"
         )
-        self.rb_confirm_btn.text = "Bod B0 potvrzen"
-        self.rb_confirm_btn.disabled = True
+        self.rb_confirm_btn.text = f"Potvrdit cíl {nav_name}"
+        self.rb_confirm_btn.disabled = not self.nav_target_in_zone
 
     def _update_distance_display(self):
         if not hasattr(self, "distance_live_label"):
@@ -344,11 +414,19 @@ class NavMixin:
             self.distance_live_label.text = f"Aktuální vzdálenost k {nav_name}: {self.nav_distance_m:.2f} m"
 
     def _confirm_rb_point(self):
+        if self.rb_confirmed:
+            self.status_label.text = "B0 je uz potvrzen. Pro nove potvrzeni nejdriv restartuj/obnov flow."
+            return
         if not self._has_gnss_fix() or self.rover_gnss is None:
             self.status_label.text = "Pro potvrzeni B0 je potreba GNSS FIX."
             return
         if self.csv_b0_lat is None or self.csv_b0_lon is None:
             self.status_label.text = "B0 neni v CSV nebo nema globalni souradnice."
+            return
+        if abs(self.csv_b0_lat) < 1e-9 and abs(self.csv_b0_lon) < 1e-9:
+            self.status_label.text = (
+                "B0 ma globalni souradnice 0,0. Nahraj CSV znovu (Latitude/Longitude) a potvrd B0 znovu."
+            )
             return
 
         self.rb_confirmed = True
@@ -358,12 +436,26 @@ class NavMixin:
         shift_lat = gnss_lat - self.csv_b0_lat
         shift_lon = gnss_lon - self.csv_b0_lon
 
+        apply_shift = bool(getattr(self, "apply_b0_shift_to_points", False))
         corrected_points = []
         for pt in self.map_container.points:
             new_pt = dict(pt)
-            if pt.get("lat") is not None and pt.get("lon") is not None:
-                new_pt["lat"] = float(pt["lat"]) + shift_lat
-                new_pt["lon"] = float(pt["lon"]) + shift_lon
+            # Prefer global coordinates from CSV (if present). The parser stores
+            # rel_x/rel_y into lat/lon fields for local map drawing, which are in
+            # meters and must not be shifted as geographic degrees.
+            base_lat = pt.get("global_lat")
+            base_lon = pt.get("global_lon")
+            if base_lat is None or base_lon is None:
+                base_lat = pt.get("lat")
+                base_lon = pt.get("lon")
+            if base_lat is not None and base_lon is not None:
+                lat = float(base_lat)
+                lon = float(base_lon)
+                if apply_shift:
+                    lat += shift_lat
+                    lon += shift_lon
+                new_pt["lat"] = lat
+                new_pt["lon"] = lon
             corrected_points.append(new_pt)
         self.map_container.points = corrected_points
 
@@ -379,14 +471,16 @@ class NavMixin:
         self._render_point_buttons()
         self._update_rb_guidance()
         self._update_rb_tile_text()
+        mode_txt = "points aligned to B0 shift" if apply_shift else "points kept at original CSV coordinates"
         self.status_label.text = (
-            f"B0 potvrzen. Globalni posun: dLat={shift_lat:+.8f}, dLon={shift_lon:+.8f}. Vyber B1/B2/..."
+            f"B0 potvrzen. Globalni posun: dLat={shift_lat:+.8f}, dLon={shift_lon:+.8f} ({mode_txt}). "
+            f"Vyber B1/B2/..."
         )
         if self.rtcm_log_event is not None:
             self.rtcm_log_event(
                 f"[B0] confirmed lat={gnss_lat:.8f} lon={gnss_lon:.8f} "
                 f"csv_b0=({self.csv_b0_lat:.8f},{self.csv_b0_lon:.8f}) "
-                f"shift=({shift_lat:+.8f},{shift_lon:+.8f})"
+                f"shift=({shift_lat:+.8f},{shift_lon:+.8f}) apply_shift={apply_shift}"
             )
 
     # --- Point helpers ---

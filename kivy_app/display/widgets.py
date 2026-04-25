@@ -1,4 +1,5 @@
 import math
+import time
 
 from kivy.graphics import Color, Ellipse, Line, Rectangle
 from kivy.metrics import dp
@@ -10,6 +11,7 @@ class HeadingWidget(Widget):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.heading_deg = None
+        self.target_deg = None
         self.heading_source = None
         self.heading_detail = ""
         self._text_label = Label(
@@ -22,8 +24,9 @@ class HeadingWidget(Widget):
         self.add_widget(self._text_label)
         self.bind(pos=self._redraw, size=self._redraw)
 
-    def set_heading(self, deg, source=None, detail=""):
+    def set_heading(self, deg, source=None, detail="", target_deg=None):
         self.heading_deg = deg
+        self.target_deg = target_deg
         self.heading_source = source
         self.heading_detail = detail or ""
         self._redraw()
@@ -48,6 +51,21 @@ class HeadingWidget(Widget):
                 ty2 = cy + math.cos(rad) * tick_outer
                 Color(1, 1, 1, 0.7)
                 Line(points=[tx1, ty1, tx2, ty2], width=1.5)
+
+            # Target stop marker on dial (direction to selected B point).
+            if self.target_deg is not None:
+                target_rad = math.radians(self.target_deg % 360.0)
+                mark_outer = r - dp(1)
+                mark_inner = r - dp(12)
+                mx1 = cx + math.sin(target_rad) * mark_inner
+                my1 = cy + math.cos(target_rad) * mark_inner
+                mx2 = cx + math.sin(target_rad) * mark_outer
+                my2 = cy + math.cos(target_rad) * mark_outer
+                Color(0.1, 0.85, 0.25, 1)
+                Line(points=[mx1, my1, mx2, my2], width=dp(3))
+                dot_r = dp(3.2)
+                Color(0.1, 0.95, 0.35, 1)
+                Ellipse(pos=(mx2 - dot_r, my2 - dot_r), size=(dot_r * 2, dot_r * 2))
 
             if self.heading_deg is not None:
                 arrow_r = r - dp(10)
@@ -99,6 +117,7 @@ class MapContainer(Widget):
         self.rover_pos = None
         self.rover_heading_deg = None
         self.nav_heading_deg = None
+        self.nav_target_in_zone = False
         self.bind(pos=self._redraw, size=self._redraw)
 
     def set_points(self, points):
@@ -155,6 +174,14 @@ class MapContainer(Widget):
                     Ellipse(pos=(x - r / 2, y - r / 2), size=(r, r))
                     Color(0, 0, 0)
                     Line(circle=(x, y, r / 2), width=1)
+                    # Pulse ring only when rover is inside target tolerance.
+                    if self.nav_target_in_zone:
+                        t = time.monotonic()
+                        pulse = (math.sin(t * 4.0) + 1.0) * 0.5  # 0..1
+                        ring_r = dp(9) + pulse * dp(7)
+                        ring_alpha = 0.25 + (1.0 - pulse) * 0.45
+                        Color(1.0, 0.25, 0.25, ring_alpha)
+                        Line(circle=(x, y, ring_r), width=dp(1.8))
                 else:
                     Color(0, 0.4, 0.8)
                     r = dp(6)

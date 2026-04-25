@@ -64,6 +64,12 @@ class KivyRTKApp(App, GnssReaderMixin, BnoReaderMixin, NavMixin, NetworkMixin):
         self.network_transition_running = False
         self.rover_position = (0, 0)
         self.rover_gnss = None
+        self.rover_gnss_raw = None
+        self.rover_gnss_quality_ok = False
+        self.rover_gnss_hold_reason = ""
+        self.nav_require_rtk_fixed = False
+        self.nav_max_h_acc_m = None
+        self.nav_hold_last_good_gnss = True
         self.rover_fix_type = 0
         self.rover_carr_soln = 0
         self.rover_num_sv = 0
@@ -89,6 +95,9 @@ class KivyRTKApp(App, GnssReaderMixin, BnoReaderMixin, NavMixin, NetworkMixin):
         self.rb_bearing_deg = None
         self.rb_confirmed = False
         self.rb_confirm_threshold_m = 1.0
+        # Compensate GNSS bias by translating all CSV points by B0 delta.
+        # This keeps local distances/angles between points unchanged.
+        self.apply_b0_shift_to_points = True
         self.rb_origin_gnss = None
         self.rb_local_origin = (0.0, 0.0)
         self.csv_b0_lat = None
@@ -97,6 +106,15 @@ class KivyRTKApp(App, GnssReaderMixin, BnoReaderMixin, NavMixin, NetworkMixin):
         self.nav_target_name = None
         self.nav_distance_m = None
         self.nav_bearing_deg = None
+        self.nav_auto_confirm_enabled = False
+        self.nav_auto_confirm_distance_m = 0.05
+        self.nav_auto_confirm_hold_s = 1.5
+        self.nav_manual_confirm_distance_m = 0.05
+        self.nav_target_dwell_start_ts = 0.0
+        self.nav_target_reached = False
+        self.nav_target_reached_ts = 0.0
+        self.nav_target_in_zone = False
+        self.nav_confirmed_targets = set()
 
         self.bno_connected = False
         self.bno_heading_deg = None
@@ -120,6 +138,8 @@ class KivyRTKApp(App, GnssReaderMixin, BnoReaderMixin, NavMixin, NetworkMixin):
         self.rtcm_restart_requested = False
         self.rtk_last_fixed_ts = 0.0
         self.rtk_fix_recovery_timeout_s = 20.0
+        self.rtk_float_since_ts = 0.0
+        self.rtk_float_reinit_timeout_s = 45.0
         self.rtcm_last_reinit_ts = 0.0
         self.rtcm_reinit_cooldown_s = 12.0
         self.base_wifi_connected = False
@@ -162,7 +182,7 @@ class KivyRTKApp(App, GnssReaderMixin, BnoReaderMixin, NavMixin, NetworkMixin):
         self.rb_status_label = existing_root.ids.rb_status_label
         self.rb_confirm_btn = existing_root.ids.rb_confirm_btn
         self.distance_live_label = existing_root.ids.distance_live_label
-        self.rb_confirm_btn.bind(on_press=lambda _: self._confirm_rb_point())
+        self.rb_confirm_btn.bind(on_press=lambda _: self._on_rb_confirm_button())
 
         self.set_ref_btn = existing_root.ids.set_ref_btn
         self.clear_ref_btn = existing_root.ids.clear_ref_btn
@@ -234,6 +254,13 @@ class KivyRTKApp(App, GnssReaderMixin, BnoReaderMixin, NavMixin, NetworkMixin):
             self._heading_hold_active = False
             return heading
 
+        # If BNO is unavailable but GNSS heading lock exists, use it directly.
+        if self.gnss_heading_lock_deg is not None:
+            heading = self.gnss_heading_lock_deg % 360.0
+            self._last_visual_heading_deg = heading
+            self._heading_hold_active = False
+            return heading
+
         # Fallback to last visual heading if BNO not available
         if self._last_visual_heading_deg is not None:
             self._heading_hold_active = True
@@ -245,6 +272,8 @@ class KivyRTKApp(App, GnssReaderMixin, BnoReaderMixin, NavMixin, NetworkMixin):
     def _get_visual_heading_source(self):
         if self.bno_connected and self.bno_heading_deg is not None:
             return "BNO+OFFSET" if self._stored_heading_offset is not None else "BNO"
+        if self.gnss_heading_lock_deg is not None:
+            return "GNSS_LOCK"
         if self._heading_hold_active:
             return "HOLD"
         return "NONE"
@@ -273,6 +302,7 @@ class KivyRTKApp(App, GnssReaderMixin, BnoReaderMixin, NavMixin, NetworkMixin):
             heading_display,
             source=heading_source,
             detail=self._heading_widget_detail_text(),
+            target_deg=self.nav_bearing_deg,
         )
         self._maybe_log_angle(heading_display, heading_source)
 
