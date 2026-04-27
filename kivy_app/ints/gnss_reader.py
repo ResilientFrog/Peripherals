@@ -186,11 +186,51 @@ class GnssReaderMixin:
                             self.rover_h_acc_m = h_acc_mm / 1000.0
                             spd = getattr(msg, "gSpeed", 0) / 1000.0
                             self.rover_speed_ms = spd
+                            prev_navpvt = getattr(self, "_prev_navpvt_for_fusion", None)
+                            prev_nav_pvt_valid = bool(getattr(self, "nav_pvt_heading_valid", False))
+                            nav_pvt_heading_valid = False
+                            min_baseline = float(getattr(self, "nav_pvt_min_baseline_m", 0.30))
+                            if prev_navpvt is not None:
+                                p_lat, p_lon, p_ts = prev_navpvt
+                                dist_navpvt = self._haversine_distance_m(p_lat, p_lon, lat, lon)
+                                if (
+                                    int(getattr(self, "rover_fix_type", 0) or 0) >= 3
+                                    and int(getattr(self, "rover_carr_soln", 0) or 0) == 2
+                                    and dist_navpvt >= min_baseline
+                                ):
+                                    nav_hdg_raw = self._bearing_from_coords(p_lat, p_lon, lat, lon)
+                                    prev_smoothed = getattr(self, "nav_pvt_heading_smoothed_deg", None)
+                                    if prev_smoothed is None:
+                                        nav_hdg = nav_hdg_raw
+                                    else:
+                                        alpha = float(getattr(self, "nav_pvt_heading_alpha", 0.35))
+                                        delta = ((nav_hdg_raw - prev_smoothed + 180.0) % 360.0) - 180.0
+                                        nav_hdg = (prev_smoothed + alpha * delta) % 360.0
+                                    self.nav_pvt_heading_smoothed_deg = nav_hdg
+                                    self.nav_pvt_heading_deg = nav_hdg
+                                    self.nav_pvt_heading_ts = time.time()
+                                    self.nav_pvt_heading_valid = True
+                                    nav_pvt_heading_valid = True
+                            self._prev_navpvt_for_fusion = (lat, lon, time.time())
+                            if not nav_pvt_heading_valid:
+                                self.nav_pvt_heading_valid = False
+                                self.nav_pvt_heading_deg = None
+                            if self.rtcm_log_event is not None and prev_nav_pvt_valid != self.nav_pvt_heading_valid:
+                                if self.nav_pvt_heading_valid:
+                                    self.rtcm_log_event(
+                                        f"[NAV_PVT_HEAD] accepted hdg={self.nav_pvt_heading_deg:.2f}° "
+                                        f"baseline>={min_baseline:.2f}m FIX=RTK"
+                                    )
+                                else:
+                                    self.rtcm_log_event(
+                                        f"[NAV_PVT_HEAD] rejected FIX={self.rover_fix_type} carr={self.rover_carr_soln} "
+                                        f"(need FIX>=3, RTK FIX, baseline>={min_baseline:.2f}m)"
+                                    )
                             flags = getattr(msg, "flags", 0)
                             gnss_fix_ok = bool(flags & 0x01)
                             rtcm_flowing = self.rtcm_connected and self.rtcm_last_bytes_ts > 0
 
-                            if self.rover_carr_soln == 2 and rtcm_flowing:
+                            if self.rover_carr_soln == 2 and int(getattr(self, "rover_fix_type", 0) or 0) >= 3 and rtcm_flowing:
                                 self.rtk_float_since_ts = 0.0
                                 self.rtk_last_fixed_ts = time.time()
                                 if self._prev_gnss_for_heading is not None:
@@ -207,10 +247,9 @@ class GnssReaderMixin:
                                             self.rover_north_offset_deg = self._signed_north_offset_deg(bearing)
                                             self.heading_walk_prompt_active = False
                                             self.start_bno085_after_heading_lock()
-                                            if self.store_gnss_heading_offset() and self.rtcm_log_event is not None:
+                                            if self.rtcm_log_event is not None:
                                                 self.rtcm_log_event(
-                                                    f"[HEAD-OFFSET] stored={self._stored_heading_offset:.2f}° "
-                                                    f"(lock={self.gnss_heading_lock_deg:.2f}° bno={self.bno_heading_deg:.2f}°)"
+                                                    "[HEAD-OFFSET] deferred: waiting for stable BNO-FIRST latch"
                                                 )
                                             if self.rtcm_log_event is not None:
                                                 self.rtcm_log_event(
@@ -267,6 +306,15 @@ class GnssReaderMixin:
                                 self.rover_gnss = (lat, lon)
                             elif not getattr(self, "nav_hold_last_good_gnss", True):
                                 self.rover_gnss = None
+
+                            # Movement prompt after BNO restart calibration reference.
+                            restart_calib_pos = getattr(self, "bno_restart_calib_pos", None)
+                            threshold = float(getattr(self, "bno_move_prompt_threshold_m", 0.30))
+                            if restart_calib_pos is not None:
+                                dist_restart_m = self._haversine_distance_m(
+                                    restart_calib_pos[0], restart_calib_pos[1], lat, lon
+                                )
+                                self.bno_move_prompt_active = dist_restart_m < threshold
 
                             if self.rtcm_log_event is not None:
                                 fix_txt = fix_type_to_text(self.rover_fix_type)

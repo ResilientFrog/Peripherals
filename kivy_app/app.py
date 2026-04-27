@@ -59,6 +59,20 @@ class ExistingFlowScreen(Screen):
 
 
 class KivyRTKApp(App, GnssReaderMixin, BnoReaderMixin, NavMixin, NetworkMixin):
+    def _log_app_start_marker(self):
+        ts = time.strftime("%Y-%m-%d %H:%M:%S")
+        marker = (
+            f"{ts} [APP] start KivyRTKApp "
+            f"(rtcm={self.rtcm_host}:{self.rtcm_port}, "
+            f"wifi_if={self.base_wifi_interface}, hotspot_if={self.hotspot_interface})\n"
+        )
+        try:
+            Path(self.rtcm_log_path).parent.mkdir(parents=True, exist_ok=True)
+            with open(self.rtcm_log_path, "a", encoding="utf-8") as f:
+                f.write(marker)
+        except Exception:
+            pass
+
     def build(self):
         
         self.network_transition_running = False
@@ -77,6 +91,19 @@ class KivyRTKApp(App, GnssReaderMixin, BnoReaderMixin, NavMixin, NetworkMixin):
         self.rover_heading_deg = None
         self.rover_heading_cardinal = None
         self.rover_north_offset_deg = None
+        self.nav_pvt_heading_deg = None
+        self.nav_pvt_heading_ts = 0.0
+        self.nav_pvt_heading_valid = False
+        self.nav_pvt_heading_smoothed_deg = None
+        self.nav_pvt_min_baseline_m = 0.30
+        self.nav_pvt_fresh_timeout_s = 2.5
+        self.nav_pvt_heading_alpha = 0.35
+        self.nav_pvt_bno_match_threshold_deg = 35.0
+        self.nav_pvt_bno_diff_deg = None
+        self.nav_pvt_bno_match_ok = None
+        self.nav_pvt_anchor_bno_heading_deg = None
+        self.nav_pvt_anchor_ts = 0.0
+        self.nav_pvt_fused_heading_deg = None
         self.gnss_heading_lock_deg = None
         self.gnss_heading_lock_cardinal = None
         self.gnss_heading_lock_ts = 0.0
@@ -84,16 +111,18 @@ class KivyRTKApp(App, GnssReaderMixin, BnoReaderMixin, NavMixin, NetworkMixin):
         self._prev_gnss_for_heading = None
         self._stored_heading_offset = None  # Store GNSS heading lock here
         self._widget_heading_smoothed = None
-        self._widget_heading_alpha = 0.35
+        self._widget_heading_alpha = 0.75
         self._last_angle_log_ts = 0.0
         self._last_angle_log_value = None
         self._last_visual_heading_deg = None
         self._heading_hold_active = False
+        self._heading_ever_visible = False
         self.rb_selected_idx = None
         self.rb_selected_name = None
         self.rb_distance_m = None
         self.rb_bearing_deg = None
         self.rb_confirmed = False
+        self.b0_confirmed_once = False
         self.rb_confirm_threshold_m = 1.0
         # Compensate GNSS bias by translating all CSV points by B0 delta.
         # This keeps local distances/angles between points unchanged.
@@ -115,15 +144,49 @@ class KivyRTKApp(App, GnssReaderMixin, BnoReaderMixin, NavMixin, NetworkMixin):
         self.nav_target_reached_ts = 0.0
         self.nav_target_in_zone = False
         self.nav_confirmed_targets = set()
+        self.nav_reference_bearings = {}
+        self.nav_vector_samples = []
+        self.nav_vector_samples_max = 60
+        self.nav_guidance_smoothed_bearing_deg = None
+        self.nav_guidance_smoothed_steer_deg = None
+        self.nav_guidance_smooth_alpha = 0.55
+        self.nav_guidance_max_turn_rate_deg_s = 260.0
+        self.nav_guidance_close_alpha = 0.25
+        self.nav_guidance_close_distance_m = 1.0
+        self.nav_guidance_hold_distance_m = 0.20
+        self.nav_last_update_ts = 0.0
+        self.nav_blink_hz = 2.0
+        self.nav_stale_after_s = 0.8
+        self.nav_estimate_max_horizon_s = 3.0
+        self.nav_last_live_pos = None
+        self.nav_last_live_pos_ts = 0.0
+        self.nav_prev_live_pos = None
+        self.nav_prev_live_pos_ts = 0.0
+        self.nav_estimated_pos = None
+        self.nav_last_used_estimation = False
+        self.nav_display_bearing_deg = None
 
         self.bno_connected = False
         self.bno_heading_deg = None
         self.bno_heading_cardinal = None
         self.bno_quaternion = None
+        self.bno_first_heading_deg = None
+        self.bno_first_is_valid = False
+        self.bno_anchor_first_heading_deg = None
+        self.bno_rebase_delta_deg = 0.0
+        self.bno_restart_calib_pos = None
+        self.bno_move_prompt_active = False
+        self.bno_move_prompt_threshold_m = 0.30
+        self.bno_recalc_min_baseline_m = 0.70
+        self.bno_last_raw_log_ts = 0.0
+        self.bno_block_until_ts = 0.0
+        self.bno_error_ts_window = []
         self.bno_mode = None
         self.bno_address = None
         self.bno_last_error = ""
         self.bno_recovering = False
+        self.bno_reset_status_active = False
+        self.bno_reset_state = "NONE"
         self._bno_thread = None
 
         self.zed_connected = False
@@ -164,6 +227,7 @@ class KivyRTKApp(App, GnssReaderMixin, BnoReaderMixin, NavMixin, NetworkMixin):
         self.rtcm_port = 2101
         self.rtcm_log_path = str(BASE_DIR / "rtcm_incoming.log")
         self.rtcm_log_event = None
+        self._log_app_start_marker()
 
         Builder.load_file(str(BASE_DIR / "map.kv"))
         self.root = AppRoot()
@@ -242,27 +306,36 @@ class KivyRTKApp(App, GnssReaderMixin, BnoReaderMixin, NavMixin, NetworkMixin):
     # --- Heading visual helpers ---
 
     def _get_visual_heading_deg(self):
-        # Always use BNO085 + stored offset if available
-        if self.bno_connected and self.bno_heading_deg is not None:
-            if self._stored_heading_offset is None and self.gnss_heading_lock_deg is not None:
-                self.store_gnss_heading_offset()
-            if self._stored_heading_offset is not None:
-                heading = (self.bno_heading_deg + self._stored_heading_offset) % 360.0
+        # GNSS is bootstrap-only (initial heading lock + offset anchor).
+        # Runtime heading should come from BNO only after first stable BNO sample.
+        if self.gnss_heading_lock_deg is None:
+            self._heading_hold_active = False
+            return None
+
+        if (
+            self.bno_connected
+            and self.bno_heading_deg is not None
+            and getattr(self, "bno_first_heading_deg", None) is not None
+            and bool(getattr(self, "bno_first_is_valid", False))
+            and time.time() >= float(getattr(self, "bno_block_until_ts", 0.0))
+            and self._stored_heading_offset is not None
+        ):
+            bno_first = getattr(self, "bno_first_heading_deg", None)
+            rebase_delta = float(getattr(self, "bno_rebase_delta_deg", 0.0))
+            anchor_first = getattr(self, "bno_anchor_first_heading_deg", None)
+            rebased_heading = (self.bno_heading_deg + rebase_delta) % 360.0
+            if anchor_first is not None:
+                relative_heading = (rebased_heading - anchor_first) % 360.0
             else:
-                heading = self.bno_heading_deg % 360.0
+                relative_heading = (self.bno_heading_deg - bno_first) % 360.0
+            heading = (relative_heading + self._stored_heading_offset) % 360.0
             self._last_visual_heading_deg = heading
             self._heading_hold_active = False
+            self._heading_ever_visible = True
             return heading
 
-        # If BNO is unavailable but GNSS heading lock exists, use it directly.
-        if self.gnss_heading_lock_deg is not None:
-            heading = self.gnss_heading_lock_deg % 360.0
-            self._last_visual_heading_deg = heading
-            self._heading_hold_active = False
-            return heading
-
-        # Fallback to last visual heading if BNO not available
-        if self._last_visual_heading_deg is not None:
+        # During BNO reconnect/restart use HOLD only after first successful visible heading.
+        if self._heading_ever_visible and self._last_visual_heading_deg is not None:
             self._heading_hold_active = True
             return self._last_visual_heading_deg
 
@@ -270,10 +343,15 @@ class KivyRTKApp(App, GnssReaderMixin, BnoReaderMixin, NavMixin, NetworkMixin):
         return None
 
     def _get_visual_heading_source(self):
-        if self.bno_connected and self.bno_heading_deg is not None:
-            return "BNO+OFFSET" if self._stored_heading_offset is not None else "BNO"
-        if self.gnss_heading_lock_deg is not None:
-            return "GNSS_LOCK"
+        if (
+            self.bno_connected
+            and self.bno_heading_deg is not None
+            and getattr(self, "bno_first_heading_deg", None) is not None
+            and bool(getattr(self, "bno_first_is_valid", False))
+            and time.time() >= float(getattr(self, "bno_block_until_ts", 0.0))
+            and self._stored_heading_offset is not None
+        ):
+            return "BNO_RUNTIME"
         if self._heading_hold_active:
             return "HOLD"
         return "NONE"
@@ -283,7 +361,17 @@ class KivyRTKApp(App, GnssReaderMixin, BnoReaderMixin, NavMixin, NetworkMixin):
         """
         if self.gnss_heading_lock_deg is None or self.bno_heading_deg is None:
             return False
-        self._stored_heading_offset = (self.gnss_heading_lock_deg - self.bno_heading_deg) % 360.0
+        bno_first = getattr(self, "bno_first_heading_deg", None)
+        if bno_first is None or not bool(getattr(self, "bno_first_is_valid", False)):
+            return False
+        rebase_delta = float(getattr(self, "bno_rebase_delta_deg", 0.0))
+        anchor_first = getattr(self, "bno_anchor_first_heading_deg", None)
+        rebased_heading = (self.bno_heading_deg + rebase_delta) % 360.0
+        if anchor_first is not None:
+            bno_relative = (rebased_heading - anchor_first) % 360.0
+        else:
+            bno_relative = (self.bno_heading_deg - bno_first) % 360.0
+        self._stored_heading_offset = (self.gnss_heading_lock_deg - bno_relative) % 360.0
         return True
     def clear_gnss_heading_offset(self):
         """
@@ -297,19 +385,41 @@ class KivyRTKApp(App, GnssReaderMixin, BnoReaderMixin, NavMixin, NetworkMixin):
 
         heading_deg = self._get_visual_heading_deg()
         heading_source = self._get_visual_heading_source()
+        if heading_deg is None and self._heading_ever_visible and self._last_visual_heading_deg is not None:
+            # Keep displaying last known north-referenced heading in all states.
+            heading_deg = self._last_visual_heading_deg
+            heading_source = "HOLD"
         heading_display = self._smooth_heading_for_widget(heading_deg)
+        target_display = self.nav_bearing_deg
+        if not getattr(self.map_container, "nav_arrow_visible", True):
+            target_display = None
+        target_delta_deg = None
+        if heading_display is not None and target_display is not None:
+            target_delta_deg = ((target_display - heading_display + 180.0) % 360.0) - 180.0
+        carr = int(getattr(self, "rover_carr_soln", 0) or 0)
+        if carr == 2:
+            rtk_badge = "RTK FIXED"
+        elif carr == 1:
+            rtk_badge = "RTK FLOAT"
+        else:
+            rtk_badge = "NO RTK"
+        if self.nav_last_used_estimation:
+            rtk_badge += " EST"
         self.heading_widget.set_heading(
             heading_display,
             source=heading_source,
             detail=self._heading_widget_detail_text(),
-            target_deg=self.nav_bearing_deg,
+            target_deg=target_display,
+            target_delta_deg=target_delta_deg,
+            target_distance_m=self.nav_distance_m,
+            rtk_badge_text=rtk_badge,
         )
         self._maybe_log_angle(heading_display, heading_source)
 
     def _smooth_heading_for_widget(self, heading_deg):
         if heading_deg is None:
-            self._widget_heading_smoothed = None
-            return None
+            # Keep last valid heading when source momentarily drops out.
+            return self._widget_heading_smoothed
 
         if self._widget_heading_smoothed is None:
             self._widget_heading_smoothed = heading_deg % 360.0

@@ -10,6 +10,92 @@ from ints import carr_soln_to_text, fix_type_to_text, rtk_status_text
 
 class NavMixin:
 
+    @staticmethod
+    def _normalize_signed_angle(deg):
+        return ((deg + 180.0) % 360.0) - 180.0
+
+    def _smooth_circular_angle(self, current, target, alpha):
+        if target is None:
+            return None
+        if current is None:
+            return target % 360.0
+        delta = self._normalize_signed_angle(target - current)
+        return (current + alpha * delta) % 360.0
+
+    def _rate_limit_circular_angle(self, current, target, max_delta):
+        if target is None:
+            return None
+        if current is None:
+            return target % 360.0
+        delta = self._normalize_signed_angle(target - current)
+        if delta > max_delta:
+            delta = max_delta
+        elif delta < -max_delta:
+            delta = -max_delta
+        return (current + delta) % 360.0
+
+    def _append_nav_vector_sample(
+        self,
+        sample_ts,
+        source_lon,
+        source_lat,
+        target_lon,
+        target_lat,
+        bearing_abs_deg,
+        steer_rel_deg,
+        heading_deg,
+        distance_m,
+        estimated,
+    ):
+        sample = {
+            "ts": sample_ts,
+            "source_lon": source_lon,
+            "source_lat": source_lat,
+            "target_lon": target_lon,
+            "target_lat": target_lat,
+            "bearing_abs_deg": bearing_abs_deg,
+            "steer_rel_deg": steer_rel_deg,
+            "heading_deg": heading_deg,
+            "distance_m": distance_m,
+            "rtk_carr_soln": int(getattr(self, "rover_carr_soln", 0) or 0),
+            "estimated": bool(estimated),
+        }
+        self.nav_vector_samples.append(sample)
+        max_len = int(getattr(self, "nav_vector_samples_max", 60))
+        if len(self.nav_vector_samples) > max_len:
+            self.nav_vector_samples = self.nav_vector_samples[-max_len:]
+
+    def _reset_nav_guidance_state(self):
+        self.nav_vector_samples = []
+        self.nav_guidance_smoothed_bearing_deg = None
+        self.nav_guidance_smoothed_steer_deg = None
+        self.nav_last_update_ts = 0.0
+        self.nav_last_live_pos = None
+        self.nav_last_live_pos_ts = 0.0
+        self.nav_prev_live_pos = None
+        self.nav_prev_live_pos_ts = 0.0
+        self.nav_estimated_pos = None
+        self.nav_last_used_estimation = False
+        self.nav_display_bearing_deg = None
+        if hasattr(self, "map_container"):
+            self.map_container.nav_heading_deg = None
+            self.map_container.nav_arrow_visible = True
+
+    def _compute_reference_bearings_from_b0(self, points, b0_lat, b0_lon):
+        ref = {}
+        for pt in points:
+            if not self._is_b_target_point(pt):
+                continue
+            lat = pt.get("lat")
+            lon = pt.get("lon")
+            if lat is None or lon is None:
+                continue
+            name = str(pt.get("name", "")).strip().upper()
+            az = self._bearing_from_coords(float(b0_lat), float(b0_lon), float(lat), float(lon))
+            dist = self._haversine_distance_m(float(b0_lat), float(b0_lon), float(lat), float(lon))
+            ref[name] = {"azimuth_deg": az, "distance_m": dist}
+        return ref
+
     # --- Status text helpers ---
 
     def _position_status_text(self):
@@ -42,13 +128,17 @@ class NavMixin:
 
     def _heading_text(self):
         heading = self._get_visual_heading_deg()
+        if heading is None:
+            heading = getattr(self, "_last_visual_heading_deg", None)
         if heading is not None:
             source = self._get_visual_heading_source()
             parts = [f"Angle φ[{source}]: {heading:.1f}°"]
-            if source == "BNO+OFFSET" and self._stored_heading_offset is not None:
+            if source == "BNO_FIRST+OFFSET" and self._stored_heading_offset is not None:
                 parts.append(f"off={self._stored_heading_offset:+.1f}°")
-            if source == "BNO" and self.rover_north_offset_deg is not None:
-                parts.append(f"dN={self.rover_north_offset_deg:+.1f}°")
+            if source == "BNO_FIRST":
+                bno_first = getattr(self, "bno_first_heading_deg", None)
+                if bno_first is not None:
+                    parts.append(f"b0={bno_first:.1f}°")
             return " ".join(parts)
         return None
 
@@ -82,16 +172,35 @@ class NavMixin:
 
         if self.gnss_heading_lock_deg is not None:
             parts.append(f"GNSS_LOCK {self.gnss_heading_lock_deg:.1f}°")
+        nav_pvt_hdg = getattr(self, "nav_pvt_heading_deg", None)
+        nav_pvt_ts = float(getattr(self, "nav_pvt_heading_ts", 0.0) or 0.0)
+        if (
+            bool(getattr(self, "nav_pvt_heading_valid", False))
+            and nav_pvt_hdg is not None
+            and (time.time() - nav_pvt_ts) <= float(getattr(self, "nav_pvt_fresh_timeout_s", 2.5))
+        ):
+            parts.append(f"NAV_PVT {nav_pvt_hdg:.1f}°")
+            diff = getattr(self, "nav_pvt_bno_diff_deg", None)
+            if diff is not None:
+                parts.append(f"ΔBNO={diff:.1f}°")
         if self.bno_heading_deg is not None:
-            parts.append(f"BNO_REL {self.bno_heading_deg:.1f}°")
+            parts.append(f"BNO_RAW {self.bno_heading_deg:.1f}°")
+        if self.bno_heading_deg is not None and getattr(self, "bno_first_heading_deg", None) is not None:
+            bno_rel = (self.bno_heading_deg - self.bno_first_heading_deg) % 360.0
+            parts.append(f"BNO_REL0 {bno_rel:.1f}°")
         visual_heading = self._get_visual_heading_deg()
         if visual_heading is not None:
             parts.append(f"WIDGET={visual_heading:.1f}°")
-        if self.nav_bearing_deg is not None:
-            parts.append(f"TARGET={self.nav_bearing_deg:.1f}°")
+        target_display = self.nav_display_bearing_deg
+        if target_display is None:
+            target_display = self.nav_bearing_deg
+        if target_display is not None:
+            parts.append(f"TARGET={target_display:.1f}°")
             if visual_heading is not None:
-                turn_delta = ((self.nav_bearing_deg - visual_heading + 180.0) % 360.0) - 180.0
+                turn_delta = self._normalize_signed_angle(target_display - visual_heading)
                 parts.append(f"TURN={turn_delta:+.1f}°")
+        if self.nav_last_used_estimation:
+            parts.append("NAV_EST")
 
         return " | ".join(parts)
 
@@ -107,10 +216,16 @@ class NavMixin:
             walk_prompt = ""
             if self.heading_walk_prompt_active:
                 walk_prompt = "\nHeading init: jdi rovne pro ziskani heading locku"
+            bno_move_prompt = ""
+            if getattr(self, "bno_move_prompt_active", False):
+                bno_move_prompt = "\nBNO restart: posun se znovu (>= 0.30 m) pro novou kalibraci offsetu"
+            bno_reset_prompt = ""
+            if getattr(self, "bno_reset_status_active", False):
+                bno_reset_prompt = "\nBNO085 se resetuje"
             self.status_label.text = (
                 f"Status: {rtk_status_text(self.rover_fix_type, self.rover_carr_soln)} "
                 f"({fix_type_to_text(self.rover_fix_type)}, {carr_soln_to_text(self.rover_carr_soln)}) | "
-                f"{self._rtcm_status_text()}\n{position_text}{walk_prompt}"
+                f"{self._rtcm_status_text()}\n{position_text}{walk_prompt}{bno_move_prompt}{bno_reset_prompt}"
             )
             return
 
@@ -146,8 +261,9 @@ class NavMixin:
         heading_deg = self._get_visual_heading_deg()
         self.map_container.rover_heading_deg = heading_deg
 
-        if self.rover_gnss:
-            lat, lon = self.rover_gnss
+        map_gnss = self.rover_gnss_raw if self.rover_gnss_raw is not None else self.rover_gnss
+        if map_gnss:
+            lat, lon = map_gnss
             self.map_container.rover_pos = (lon, lat)
         else:
             self.map_container.rover_pos = None
@@ -166,7 +282,6 @@ class NavMixin:
             # B0 must use global coordinates for GNSS shift computation.
             self.csv_b0_lat = float(b0_global_lat) if b0_global_lat is not None else float(b0_point["lat"])
             self.csv_b0_lon = float(b0_global_lon) if b0_global_lon is not None else float(b0_point["lon"])
-            points = [pt for pt in points if not self._is_b0_point(pt)]
         else:
             self.csv_b0_lat = None
             self.csv_b0_lon = None
@@ -187,7 +302,9 @@ class NavMixin:
         self.nav_target_reached_ts = 0.0
         self.nav_target_in_zone = False
         self.nav_confirmed_targets = set()
-        self.map_container.nav_heading_deg = None
+        self._reset_nav_guidance_state()
+        self.map_container.nav_line_start_pos = None
+        self.map_container.nav_line_end_pos = None
         self._render_point_buttons()
 
     def _render_point_buttons(self):
@@ -241,7 +358,12 @@ class NavMixin:
                 self.nav_target_reached = False
                 self.nav_target_reached_ts = 0.0
                 self.nav_target_in_zone = False
-                self.status_label.text = f"Selected target: {name}"
+                self._reset_nav_guidance_state()
+                heading_now = self._get_visual_heading_deg()
+                if heading_now is None:
+                    heading_now = getattr(self, "_last_visual_heading_deg", None)
+                heading_txt = f" | φ={heading_now:.2f}°" if heading_now is not None else " | φ=---"
+                self.status_label.text = f"Selected target: {name}{heading_txt}"
                 if self.rtcm_log_event is not None:
                     self.rtcm_log_event(f"[NAV] target selected name={name}")
             self._update_rb_guidance()
@@ -296,9 +418,12 @@ class NavMixin:
         self.nav_target_name = None
         self.nav_distance_m = None
         self.nav_bearing_deg = None
+        self.nav_display_bearing_deg = None
         self.nav_target_dwell_start_ts = 0.0
         self.nav_target_in_zone = False
-        self.map_container.nav_heading_deg = None
+        self._reset_nav_guidance_state()
+        self.map_container.nav_line_start_pos = None
+        self.map_container.nav_line_end_pos = None
         self._render_point_buttons()
         self.status_label.text = f"{reached_name} potvrzen ručně ({reached_dist:.2f} m). Vyber další cíl."
         if self.rtcm_log_event is not None:
@@ -307,15 +432,20 @@ class NavMixin:
             )
 
     def _update_rb_guidance(self):
-        rover_pos = self.map_container.rover_pos
+        now = time.time()
+        live_gnss = self.rover_gnss_raw if self.rover_gnss_raw is not None else self.rover_gnss
 
-        if not self.rb_confirmed or rover_pos is None:
+        if not self.rb_confirmed or live_gnss is None:
             self.rb_distance_m = None
             self.rb_bearing_deg = None
             self.nav_distance_m = None
             self.nav_bearing_deg = None
+            self.nav_display_bearing_deg = None
             self.nav_target_in_zone = False
             self.map_container.nav_heading_deg = None
+            self.map_container.nav_arrow_visible = True
+            self.map_container.nav_line_start_pos = None
+            self.map_container.nav_line_end_pos = None
             self._update_rb_tile_text()
             self._update_distance_display()
             return
@@ -325,33 +455,146 @@ class NavMixin:
         if target_point is None:
             self.nav_distance_m = None
             self.nav_bearing_deg = None
+            self.nav_display_bearing_deg = None
             self.nav_target_in_zone = False
             self.map_container.nav_heading_deg = None
+            self.map_container.nav_arrow_visible = True
+            self.map_container.nav_line_start_pos = None
+            self.map_container.nav_line_end_pos = None
             self._update_rb_tile_text()
             self._update_distance_display()
             return
 
-        rover_lon, rover_lat = rover_pos
+        rover_lat, rover_lon = live_gnss
         target_lon = target_point.get("lon")
         target_lat = target_point.get("lat")
         if target_lon is None or target_lat is None:
             self.nav_distance_m = None
             self.nav_bearing_deg = None
+            self.nav_display_bearing_deg = None
             self.nav_target_in_zone = False
             self.map_container.nav_heading_deg = None
+            self.map_container.nav_arrow_visible = True
+            self.map_container.nav_line_start_pos = None
+            self.map_container.nav_line_end_pos = None
             self._update_rb_tile_text()
             self._update_distance_display()
             return
 
+        if self.nav_last_live_pos is None or abs(rover_lat - self.nav_last_live_pos[0]) > 1e-12 or abs(rover_lon - self.nav_last_live_pos[1]) > 1e-12:
+            if self.nav_last_live_pos is not None:
+                self.nav_prev_live_pos = self.nav_last_live_pos
+                self.nav_prev_live_pos_ts = self.nav_last_live_pos_ts
+            self.nav_last_live_pos = (rover_lat, rover_lon)
+            self.nav_last_live_pos_ts = now
+            self.nav_estimated_pos = (rover_lat, rover_lon)
+
+        used_estimation = False
+        nav_lat = rover_lat
+        nav_lon = rover_lon
+        stale_after_s = float(getattr(self, "nav_stale_after_s", 0.8))
+        estimate_horizon_s = float(getattr(self, "nav_estimate_max_horizon_s", 3.0))
+        rtk_fixed = int(getattr(self, "rover_carr_soln", 0) or 0) == 2
+        if self.nav_last_live_pos_ts > 0:
+            age_s = max(0.0, now - self.nav_last_live_pos_ts)
+            if age_s > stale_after_s and not rtk_fixed:
+                if (
+                    self.nav_prev_live_pos is not None
+                    and self.nav_prev_live_pos_ts > 0
+                    and self.nav_last_live_pos is not None
+                ):
+                    dt_live = self.nav_last_live_pos_ts - self.nav_prev_live_pos_ts
+                    if dt_live > 1e-3:
+                        dt_pred = min(age_s, estimate_horizon_s)
+                        prev_lat, prev_lon = self.nav_prev_live_pos
+                        last_lat, last_lon = self.nav_last_live_pos
+                        vel_lat = (last_lat - prev_lat) / dt_live
+                        vel_lon = (last_lon - prev_lon) / dt_live
+                        nav_lat = last_lat + vel_lat * dt_pred
+                        nav_lon = last_lon + vel_lon * dt_pred
+                        self.nav_estimated_pos = (nav_lat, nav_lon)
+                        used_estimation = True
+                if not used_estimation and self.nav_estimated_pos is not None:
+                    nav_lat, nav_lon = self.nav_estimated_pos
+                    used_estimation = True
+
         target_lat = float(target_lat)
         target_lon = float(target_lon)
-        self.nav_distance_m = self._haversine_distance_m(rover_lat, rover_lon, target_lat, target_lon)
-        self.nav_bearing_deg = self._bearing_from_coords(rover_lat, rover_lon, target_lat, target_lon)
-        dlat = target_lat - rover_lat
-        dlon = target_lon - rover_lon
-        self.map_container.nav_heading_deg = (math.degrees(math.atan2(dlon, dlat)) % 360.0)
+        self.nav_distance_m = self._haversine_distance_m(nav_lat, nav_lon, target_lat, target_lon)
+        self.nav_bearing_deg = self._bearing_from_coords(nav_lat, nav_lon, target_lat, target_lon)
+
+        current_heading = self._get_visual_heading_deg()
+        steer_rel_deg = None
+        if current_heading is not None:
+            steer_rel_deg = self._normalize_signed_angle(self.nav_bearing_deg - current_heading)
+
+        alpha = float(getattr(self, "nav_guidance_smooth_alpha", 0.55))
+        close_dist_m = float(getattr(self, "nav_guidance_close_distance_m", 1.0))
+        if self.nav_distance_m is not None and self.nav_distance_m < close_dist_m:
+            alpha = float(getattr(self, "nav_guidance_close_alpha", 0.25))
+        self.nav_guidance_smoothed_bearing_deg = self._smooth_circular_angle(
+            self.nav_guidance_smoothed_bearing_deg, self.nav_bearing_deg, alpha
+        )
+        if steer_rel_deg is not None:
+            current_rel = self.nav_guidance_smoothed_steer_deg
+            if current_rel is None:
+                self.nav_guidance_smoothed_steer_deg = steer_rel_deg
+            else:
+                delta = self._normalize_signed_angle(steer_rel_deg - current_rel)
+                self.nav_guidance_smoothed_steer_deg = current_rel + alpha * delta
+        if self.nav_guidance_smoothed_steer_deg is not None:
+            self.nav_guidance_smoothed_steer_deg = self._normalize_signed_angle(self.nav_guidance_smoothed_steer_deg)
+
+        dt = 0.1
+        if self.nav_last_update_ts > 0.0:
+            dt = min(0.5, max(0.02, now - self.nav_last_update_ts))
+        self.nav_last_update_ts = now
+        max_turn_rate = float(getattr(self, "nav_guidance_max_turn_rate_deg_s", 140.0))
+        max_delta = max_turn_rate * dt
+        display_bearing = self._rate_limit_circular_angle(
+            self.map_container.nav_heading_deg,
+            self.nav_guidance_smoothed_bearing_deg,
+            max_delta,
+        )
+        hold_dist_m = float(getattr(self, "nav_guidance_hold_distance_m", 0.20))
+        if self.nav_distance_m is not None and self.nav_distance_m <= hold_dist_m and self.nav_display_bearing_deg is not None:
+            # Near target, hold bearing to avoid noisy spinning from centimeter GNSS jitter.
+            display_bearing = self.nav_display_bearing_deg
+        # Keep map navigation cue static (B0 -> selected target line/arrow), no dynamic rover nav arrow.
+        self.map_container.nav_heading_deg = None
+        self.nav_display_bearing_deg = display_bearing
+        self.nav_last_used_estimation = used_estimation
+        self._append_nav_vector_sample(
+            sample_ts=now,
+            source_lon=nav_lon,
+            source_lat=nav_lat,
+            target_lon=target_lon,
+            target_lat=target_lat,
+            bearing_abs_deg=self.nav_bearing_deg,
+            steer_rel_deg=self.nav_guidance_smoothed_steer_deg,
+            heading_deg=current_heading,
+            distance_m=self.nav_distance_m,
+            estimated=used_estimation,
+        )
+
+        # Keep map guidance static: draw fixed B0 -> selected Bn line.
+        if self.rb_origin_gnss is not None:
+            b0_lat, b0_lon = self.rb_origin_gnss
+            self.map_container.nav_line_start_pos = (b0_lon, b0_lat)
+            self.map_container.nav_line_end_pos = (target_lon, target_lat)
+        else:
+            self.map_container.nav_line_start_pos = None
+            self.map_container.nav_line_end_pos = None
+
         threshold_m = float(getattr(self, "nav_manual_confirm_distance_m", 0.05))
         self.nav_target_in_zone = self.nav_distance_m <= threshold_m
+
+        if int(getattr(self, "rover_carr_soln", 0) or 0) == 2:
+            self.map_container.nav_arrow_visible = True
+        else:
+            blink_hz = max(0.1, float(getattr(self, "nav_blink_hz", 2.0)))
+            phase = (now * blink_hz) % 1.0
+            self.map_container.nav_arrow_visible = phase < 0.5
 
         self._update_rb_tile_text()
         self._update_distance_display()
@@ -361,6 +604,8 @@ class NavMixin:
             return
 
         current_heading = self._get_visual_heading_deg()
+        if current_heading is None:
+            current_heading = getattr(self, "_last_visual_heading_deg", None)
         heading_txt = f"φ={current_heading:.2f}°" if current_heading is not None else "φ=---"
 
         if not self.rb_confirmed:
@@ -387,9 +632,14 @@ class NavMixin:
         threshold_m = float(getattr(self, "nav_manual_confirm_distance_m", 0.05))
         if self.nav_target_in_zone:
             zone_txt = f" | IN ZONE <= {threshold_m:.2f}m"
+        bearing_txt = self.nav_display_bearing_deg if self.nav_display_bearing_deg is not None else self.nav_bearing_deg
+        steer_txt = ""
+        if self.nav_guidance_smoothed_steer_deg is not None:
+            steer_txt = f" steer={self.nav_guidance_smoothed_steer_deg:+.1f}°"
+        est_txt = " EST" if self.nav_last_used_estimation else ""
         self.rb_status_label.text = (
             f"B0 potvrzen | Cíl {nav_name}\n"
-            f"go: dist={self.nav_distance_m:.2f}m azN={self.nav_bearing_deg:.2f}°{zone_txt} | {heading_txt}"
+            f"go: dist={self.nav_distance_m:.2f}m azN={bearing_txt:.2f}°{steer_txt}{est_txt}{zone_txt} | {heading_txt}"
         )
         self.rb_confirm_btn.text = f"Potvrdit cíl {nav_name}"
         self.rb_confirm_btn.disabled = not self.nav_target_in_zone
@@ -414,6 +664,9 @@ class NavMixin:
             self.distance_live_label.text = f"Aktuální vzdálenost k {nav_name}: {self.nav_distance_m:.2f} m"
 
     def _confirm_rb_point(self):
+        if getattr(self, "b0_confirmed_once", False):
+            self.status_label.text = "B0 uz bylo potvrzeno. Pro nove potvrzeni restartuj aplikaci."
+            return
         if self.rb_confirmed:
             self.status_label.text = "B0 je uz potvrzen. Pro nove potvrzeni nejdriv restartuj/obnov flow."
             return
@@ -430,6 +683,7 @@ class NavMixin:
             return
 
         self.rb_confirmed = True
+        self.b0_confirmed_once = True
         self.rb_origin_gnss = self.rover_gnss
         gnss_lat, gnss_lon = self.rover_gnss
 
@@ -458,6 +712,9 @@ class NavMixin:
                 new_pt["lon"] = lon
             corrected_points.append(new_pt)
         self.map_container.points = corrected_points
+        self.nav_reference_bearings = self._compute_reference_bearings_from_b0(
+            corrected_points, gnss_lat, gnss_lon
+        )
 
         self.gnss_reference = {"gnss": self.rb_origin_gnss, "local": (gnss_lon, gnss_lat)}
         self.rb_selected_idx = None
@@ -468,13 +725,21 @@ class NavMixin:
         self.nav_target_name = None
         self.nav_distance_m = None
         self.nav_bearing_deg = None
+        self.nav_display_bearing_deg = None
+        self._reset_nav_guidance_state()
+        self.map_container.nav_line_start_pos = None
+        self.map_container.nav_line_end_pos = None
         self._render_point_buttons()
         self._update_rb_guidance()
         self._update_rb_tile_text()
         mode_txt = "points aligned to B0 shift" if apply_shift else "points kept at original CSV coordinates"
+        heading_now = self._get_visual_heading_deg()
+        if heading_now is None:
+            heading_now = getattr(self, "_last_visual_heading_deg", None)
+        heading_txt = f" φ={heading_now:.2f}°" if heading_now is not None else " φ=---"
         self.status_label.text = (
             f"B0 potvrzen. Globalni posun: dLat={shift_lat:+.8f}, dLon={shift_lon:+.8f} ({mode_txt}). "
-            f"Vyber B1/B2/..."
+            f"Vyber B1/B2/...{heading_txt}"
         )
         if self.rtcm_log_event is not None:
             self.rtcm_log_event(
@@ -482,6 +747,12 @@ class NavMixin:
                 f"csv_b0=({self.csv_b0_lat:.8f},{self.csv_b0_lon:.8f}) "
                 f"shift=({shift_lat:+.8f},{shift_lon:+.8f}) apply_shift={apply_shift}"
             )
+            for name in sorted(self.nav_reference_bearings):
+                item = self.nav_reference_bearings[name]
+                self.rtcm_log_event(
+                    f"[NAV-REF] from confirmed B0 to {name}: "
+                    f"az={item['azimuth_deg']:.2f}° dist={item['distance_m']:.2f}m"
+                )
 
     # --- Point helpers ---
 

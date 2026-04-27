@@ -5,7 +5,7 @@ import board
 import busio
 import adafruit_bno08x
 from adafruit_bno08x import (
-    BNO_REPORT_GAME_ROTATION_VECTOR,
+    BNO_REPORT_ROTATION_VECTOR,
 )
 from adafruit_bno08x.i2c import BNO08X_I2C
 
@@ -14,10 +14,18 @@ adafruit_bno08x._DEBUG = False
 adafruit_bno08x._FEATURE_ENABLE_TIMEOUT = 2.5
 # Use a conservative I2C clock for better stability on longer/noisy wiring.
 # Standalone scripts in this project are stable in the 25-50 kHz range.
-BNO_I2C_FREQUENCY_HZ = 50000
+BNO_I2C_FREQUENCY_HZ = 25000
 BNO_RECONNECT_ERROR_STREAK = 120
-BNO_MAX_STEP_DEG = 12.0
-BNO_HEADING_ALPHA = 0.35
+BNO_MAX_STEP_DEG = 20.0
+BNO_HEADING_ALPHA = 0.65
+BNO_FIRST_WARMUP_S = 0.8
+BNO_FIRST_STABLE_WINDOW = 12
+BNO_FIRST_MAX_SPREAD_DEG = 6.0
+BNO_FIRST_REJECT_NEAR_ZERO_DEG = 1.0
+BNO_POST_RECONNECT_COOLDOWN_S = 2.0
+BNO_ERROR_BURST_WINDOW_S = 10.0
+BNO_ERROR_BURST_THRESHOLD = 6
+BNO_BLOCK_DURATION_S = 8.0
 
 
 class BnoReaderMixin:
@@ -41,7 +49,8 @@ class BnoReaderMixin:
         siny_cosp = 2.0 * (r * k + i * j)
         cosy_cosp = 1.0 - 2.0 * (j * j + k * k)
         yaw = math.degrees(math.atan2(siny_cosp, cosy_cosp))
-        return yaw % 360.0
+        # Match app/map convention: clockwise turn (N->E) must increase heading.
+        return (-yaw) % 360.0
 
     @staticmethod
     def _angle_delta_deg(current, previous):
@@ -57,8 +66,8 @@ class BnoReaderMixin:
         raise RuntimeError("No BNO085 found at 0x4A/0x4B")
 
     def _enable_bno_quaternion_mode(self, sensor):
-        mode_name = "game"
-        quat_attr = "game_quaternion"
+        mode_name = "rotation"
+        quat_attr = "quaternion"
 
         # Mirror the standalone working script behavior.
         try:
@@ -71,7 +80,7 @@ class BnoReaderMixin:
         for _attempt in range(1, 6):
             try:
                 self._log_bno(f"[BNO] enable mode={mode_name} attempt={_attempt}")
-                sensor.enable_feature(BNO_REPORT_GAME_ROTATION_VECTOR, 100000)
+                sensor.enable_feature(BNO_REPORT_ROTATION_VECTOR, 100000)
                 self._log_bno(f"[BNO] mode active: {mode_name}")
                 return mode_name, quat_attr
             except Exception as exc:
@@ -80,7 +89,7 @@ class BnoReaderMixin:
             if (time.monotonic() - start_ts) > 20.0:
                 raise RuntimeError("BNO quaternion enable timed out")
 
-        raise RuntimeError("BNO085 detected, but game quaternion report could not be enabled")
+        raise RuntimeError("BNO085 detected, but rotation quaternion report could not be enabled")
 
     def _log_bno(self, message):
         if self.rtcm_log_event is not None:
@@ -100,6 +109,12 @@ class BnoReaderMixin:
         Recompute GNSS heading lock from the latest coordinate pair.
         Called when BNO reconnects/restarts so visual heading can be re-aligned.
         """
+        if int(getattr(self, "rover_fix_type", 0) or 0) < 3 or int(getattr(self, "rover_carr_soln", 0) or 0) != 2:
+            self._log_bno(
+                f"[HEAD-RECALC] skipped ({reason}): need FIX>=3 and RTK FIX "
+                f"(fix={getattr(self, 'rover_fix_type', 0)} carr={getattr(self, 'rover_carr_soln', 0)})"
+            )
+            return False
         if not hasattr(self, "rover_gnss") or self.rover_gnss is None:
             self._log_bno(f"[BNO] heading recalc skipped ({reason}): GNSS position unavailable")
             return False
@@ -116,9 +131,11 @@ class BnoReaderMixin:
             return False
 
         # Need a small movement baseline to produce a stable bearing.
-        if dist_m < 0.3:
+        threshold = float(getattr(self, "bno_recalc_min_baseline_m", 0.70))
+        if dist_m < threshold:
+            self.bno_move_prompt_active = True
             self._log_bno(
-                f"[BNO] heading recalc skipped ({reason}): movement too small ({dist_m:.2f}m)"
+                f"[HEAD-RECALC] skipped ({reason}): movement too small ({dist_m:.2f}m < {threshold:.2f}m)"
             )
             return False
 
@@ -129,8 +146,9 @@ class BnoReaderMixin:
         self.rover_heading_deg = bearing
         self.rover_heading_cardinal = self.gnss_heading_lock_cardinal
         self.rover_north_offset_deg = self._signed_north_offset_deg(bearing)
+        self.bno_move_prompt_active = False
         self._log_bno(
-            f"[BNO] heading recalculated ({reason}): {bearing:.2f}° "
+            f"[HEAD-RECALC] heading recalculated ({reason}): {bearing:.2f}° "
             f"({self.gnss_heading_lock_cardinal}) from {dist_m:.2f}m GNSS baseline"
         )
         return True
@@ -152,6 +170,8 @@ class BnoReaderMixin:
                 self.bno_mode = mode
                 self.bno_last_error = ""
                 self.bno_recovering = False
+                self.bno_reset_status_active = False
+                self.bno_reset_state = "RUNNING_REBASED"
                 if self.rtcm_log_event is not None and hasattr(self, 'gnss_heading_lock_deg') and self.gnss_heading_lock_deg is not None:
                     self.rtcm_log_event(
                         f"[BNO] started mode={mode} addr=0x{address:02X} offset={self.gnss_heading_lock_deg:.2f}°"
@@ -162,6 +182,12 @@ class BnoReaderMixin:
                 last_quat = None
                 stale_quat_streak = 0
                 filtered_heading = None
+                session_first_sample_latched = False
+                session_started_ts = time.monotonic()
+                first_heading_window = []
+                pending_offset_cooldown_logged = False
+                self.bno_first_heading_deg = None
+                self.bno_first_is_valid = False
                 while True:
                     try:
                         quat = getattr(sensor, quat_attr)
@@ -205,13 +231,113 @@ class BnoReaderMixin:
                         self.bno_heading_deg = heading
                         self.bno_heading_cardinal = self._heading_to_cardinal(heading)
                         last_heading = heading
+
+                        if not session_first_sample_latched:
+                            first_heading_window.append(heading)
+                            if len(first_heading_window) > BNO_FIRST_STABLE_WINDOW:
+                                first_heading_window = first_heading_window[-BNO_FIRST_STABLE_WINDOW:]
+
+                            elapsed = time.monotonic() - session_started_ts
+                            if elapsed >= BNO_FIRST_WARMUP_S and len(first_heading_window) >= BNO_FIRST_STABLE_WINDOW:
+                                ref = first_heading_window[-1]
+                                spread = max(
+                                    abs(self._angle_delta_deg(sample, ref))
+                                    for sample in first_heading_window
+                                )
+                                near_zero = all(
+                                    abs(self._angle_delta_deg(sample, 0.0)) <= BNO_FIRST_REJECT_NEAR_ZERO_DEG
+                                    for sample in first_heading_window
+                                )
+                                if spread <= BNO_FIRST_MAX_SPREAD_DEG and not near_zero:
+                                    self.bno_first_heading_deg = ref
+                                    self.bno_first_is_valid = True
+                                    self.bno_reset_state = "LOCAL_FIRST_LATCHED"
+                                    anchor = getattr(self, "bno_anchor_first_heading_deg", None)
+                                    if anchor is None:
+                                        self.bno_anchor_first_heading_deg = ref
+                                        self.bno_rebase_delta_deg = 0.0
+                                        self._log_bno(
+                                            f"[BNO-ANCHOR] init first={ref:.2f}° delta=+0.00°"
+                                        )
+                                    else:
+                                        self.bno_reset_state = "REBASE_PENDING"
+                                        delta = self._angle_delta_deg(anchor, ref)
+                                        self.bno_rebase_delta_deg = delta
+                                        self._log_bno(
+                                            f"[BNO-REBASE] anchor={anchor:.2f}° new_first={ref:.2f}° "
+                                            f"delta={delta:+.2f}°"
+                                        )
+                                    self.bno_restart_calib_pos = self.rover_gnss
+                                    session_first_sample_latched = True
+                                    self.bno_reset_state = "RUNNING_REBASED"
+                                    self.bno_reset_status_active = False
+                                    if self._stored_heading_offset is None and self.gnss_heading_lock_deg is not None:
+                                        # Bootstrap-only GNSS use: capture one initial north offset.
+                                        self._stored_heading_offset = float(self.gnss_heading_lock_deg) % 360.0
+                                        self._log_bno(
+                                            f"[HEAD-OFFSET] bootstrap stored={self._stored_heading_offset:.2f}° "
+                                            "(GNSS bootstrap only)"
+                                        )
+                                    if self.bno_restart_calib_pos is not None:
+                                        lat, lon = self.bno_restart_calib_pos
+                                        self._log_bno(
+                                            f"[BNO-FIRST] raw={ref:.2f}° lat={lat:.8f} lon={lon:.8f} "
+                                            f"window={BNO_FIRST_STABLE_WINDOW} spread={spread:.2f}°"
+                                        )
+                                    else:
+                                        self._log_bno(
+                                            f"[BNO-FIRST] raw={ref:.2f}° lat/lon unavailable "
+                                            f"window={BNO_FIRST_STABLE_WINDOW} spread={spread:.2f}°"
+                                        )
+                                elif near_zero:
+                                    # Keep waiting for a non-zero stable reference after reconnect.
+                                    self._log_bno(
+                                        f"[BNO-FIRST] rejected near-zero cluster "
+                                        f"(window={BNO_FIRST_STABLE_WINDOW} spread={spread:.2f}°)"
+                                    )
+
+                        now_ts = time.time()
+                        if (now_ts - float(getattr(self, "bno_last_raw_log_ts", 0.0))) >= 2.0:
+                            self._log_bno(f"[BNO-RAW] yaw={heading:.2f}°")
+                            self.bno_last_raw_log_ts = now_ts
+
                         if pending_offset_refresh:
-                            self._recompute_heading_from_coordinates(reason="post-bno-reconnect")
-                            if self.store_gnss_heading_offset():
+                            if (time.monotonic() - session_started_ts) < BNO_POST_RECONNECT_COOLDOWN_S:
+                                if not pending_offset_cooldown_logged:
+                                    self.bno_reset_state = "WARMUP_WINDOW"
+                                    self._log_bno(
+                                        f"[BNO-RESTART] cooldown active {BNO_POST_RECONNECT_COOLDOWN_S:.1f}s, "
+                                        "offset refresh delayed"
+                                    )
+                                    pending_offset_cooldown_logged = True
+                                time.sleep(0.04)
+                                continue
+                            self._log_bno("[BNO-RESTART] reconnect recovered, applying BNO-only rebase")
+                            self.bno_reset_state = "OFFSET_REFRESH_CHECK"
+                            if not bool(getattr(self, "bno_first_is_valid", False)):
+                                self._log_bno("[HEAD-OFFSET] skipped: bno_first not stable yet")
+                            else:
                                 self._log_bno(
-                                    f"[BNO] offset refreshed after reconnect: {self._stored_heading_offset:+.2f}°"
+                                    f"[HEAD-OFFSET] keep bootstrap={float(getattr(self, '_stored_heading_offset', 0.0)):+.2f}° "
+                                    f"(rebase={float(getattr(self, 'bno_rebase_delta_deg', 0.0)):+.2f}°)"
+                                )
+                            if self.rover_gnss is not None and self.bno_restart_calib_pos is not None:
+                                dist_m = self._haversine_distance_m(
+                                    self.bno_restart_calib_pos[0],
+                                    self.bno_restart_calib_pos[1],
+                                    self.rover_gnss[0],
+                                    self.rover_gnss[1],
+                                )
+                                threshold = float(getattr(self, "bno_move_prompt_threshold_m", 0.30))
+                                self.bno_move_prompt_active = dist_m < threshold
+                                self._log_bno(
+                                    f"[BNO-RESTART] move-check dist={dist_m:.2f}m threshold={threshold:.2f}m "
+                                    f"prompt={'ON' if self.bno_move_prompt_active else 'OFF'}"
                                 )
                             pending_offset_refresh = False
+                            pending_offset_cooldown_logged = False
+                            self.bno_reset_status_active = False
+                            self.bno_reset_state = "RUNNING_REBASED"
                         if read_error_streak:
                             self._log_bno(f"[BNO] read recovered after {read_error_streak} errors")
                             read_error_streak = 0
@@ -224,6 +350,17 @@ class BnoReaderMixin:
                                 f"[BNO] read error streak={read_error_streak}: {exc}"
                             )
                             last_read_error_log_ts = now
+                            err_list = list(getattr(self, "bno_error_ts_window", []))
+                            now_ts = time.time()
+                            err_list.append(now_ts)
+                            err_list = [ts for ts in err_list if (now_ts - ts) <= BNO_ERROR_BURST_WINDOW_S]
+                            self.bno_error_ts_window = err_list
+                            if len(err_list) >= BNO_ERROR_BURST_THRESHOLD:
+                                self.bno_block_until_ts = now_ts + BNO_BLOCK_DURATION_S
+                                self._log_bno(
+                                    f"[BNO-GUARD] burst errors={len(err_list)} in {BNO_ERROR_BURST_WINDOW_S:.0f}s "
+                                    f"-> block BNO heading for {BNO_BLOCK_DURATION_S:.0f}s"
+                                )
                         # Keep last valid heading exactly like the standalone script.
                         if last_heading is not None:
                             self.bno_heading_deg = last_heading
@@ -238,11 +375,15 @@ class BnoReaderMixin:
                 self.bno_connected = False
                 self.bno_heading_deg = None
                 self.bno_heading_cardinal = None
+                self.bno_first_is_valid = False
                 self.bno_mode = None
                 self.bno_address = None
                 self.bno_last_error = str(exc)
                 self.bno_recovering = True
+                self.bno_reset_status_active = True
+                self.bno_reset_state = "RESET_DETECTED"
                 pending_offset_refresh = True
+                self.bno_move_prompt_active = False
                 if self.rtcm_log_event is not None:
                     self.rtcm_log_event(f"[BNO] error: {exc}")
                 self._close_i2c_bus(i2c)
